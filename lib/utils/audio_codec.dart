@@ -16,9 +16,21 @@ class AudioCodec {
   SimpleOpusEncoder? _encoder;
   SimpleOpusDecoder? _decoder;
   bool _opusInitialized = false;
+  Future<void>? _opusInitFuture;
 
   Future<void> _ensureOpusLoaded() async {
     if (_opusInitialized) return;
+    _opusInitFuture ??= _initializeOpus();
+
+    try {
+      await _opusInitFuture;
+    } catch (_) {
+      _opusInitFuture = null;
+      rethrow;
+    }
+  }
+
+  Future<void> _initializeOpus() async {
     initOpus(await opus_flutter.load());
     _opusInitialized = true;
   }
