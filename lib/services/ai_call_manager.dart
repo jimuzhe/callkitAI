@@ -91,23 +91,18 @@ class AICallManager {
       await XiaozhiService.instance.connect(realtime: realtime);
       _addDebugLog('小智服务连接成功');
 
-      // 启动监听
+      // 监听在 hello 回包后启动
       final modeStr = _modeToProtocolMode(listeningMode);
       if (listeningMode == ListeningMode.realtime) {
         XiaozhiService.instance.setKeepListening(true);
-        await XiaozhiService.instance.listenStart(mode: modeStr);
-        _addDebugLog('监听模式启动: $modeStr');
-
-        final micStarted = await XiaozhiService.instance.startMic();
-        _isMicActive = micStarted;
-        _addDebugLog('实时模式麦克风: ${micStarted ? "启动成功" : "启动失败"}');
+        _isMicActive = false;
+        _addDebugLog('实时模式等待服务器 hello 后启动监听');
       } else if (listeningMode == ListeningMode.autoStop) {
         XiaozhiService.instance.setKeepListening(false);
         await XiaozhiService.instance.listenStart(mode: modeStr);
         _addDebugLog('监听模式启动: $modeStr');
         _isMicActive = false;
       } else {
-        // 手动模式：等待用户按键再启动监听
         XiaozhiService.instance.setKeepListening(false);
         _isMicActive = false;
         _addDebugLog('手动模式已准备，等待用户触发录音');

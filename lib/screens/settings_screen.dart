@@ -32,7 +32,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _keepAliveEnabled = false;
   bool _vibrationEnabled = true;
   int _vibrationIntensity = 1; // 0:轻, 1:中, 2:强
-  String _defaultPersonaName = '温柔唤醒';
   String _weatherApiKey = '';
   String _weatherApiHost = '';
   // ignore: unused_field
@@ -68,8 +67,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final xc = await XiaozhiService.instance.getClientId();
     final xsn = await XiaozhiService.instance.getSerialNumber();
     final keepAliveEnabled = prefs.getBool('keep_alive_enabled') ?? false;
-    final personaId = prefs.getString('default_persona_id') ?? 'gentle';
-    final fallbackPersonaName = AIPersona.getById(personaId).name;
     setState(() {
       _keepAliveEnabled = keepAliveEnabled;
       _vibrationEnabled = prefs.getBool('vibration_enabled') ?? true;
@@ -88,23 +85,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _panicNotificationCount = prefs.getInt('panic_notification_count') ?? 200;
       _panicNotificationInterval =
           prefs.getInt('panic_notification_interval') ?? 3;
-      _defaultPersonaName = fallbackPersonaName;
     });
-
-    try {
-      final persona = await PersonaStore.instance.getByIdMerged(personaId);
-      if (persona != null && mounted) {
-        setState(() {
-          _defaultPersonaName = persona.name;
-        });
-      }
-    } catch (_) {
-      if (mounted) {
-        setState(() {
-          _defaultPersonaName = fallbackPersonaName;
-        });
-      }
-    }
 
     if (keepAliveEnabled) {
       await AudioService.instance.ensureBackgroundKeepAlive();
@@ -313,14 +294,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ],
                   ),
                 ),
-              ),
-              const Divider(height: 1, indent: 56, endIndent: 16),
-              _buildMetallicListTile(
-                context,
-                icon: Icons.person_outline,
-                title: '默认AI人设',
-                subtitle: _defaultPersonaName,
-                onTap: () => _showPersonaSelector(context),
               ),
               const Divider(height: 1, indent: 56, endIndent: 16),
               _buildMetallicListTile(

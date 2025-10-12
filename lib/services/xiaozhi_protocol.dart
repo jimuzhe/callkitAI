@@ -75,6 +75,14 @@ class XiaozhiProtocol {
     sendText(jsonEncode(msg));
   }
 
+  void sendSessionInfo(Map<String, dynamic> info) {
+    final payload = <String, dynamic>{
+      'type': 'session_info',
+      ...info,
+    };
+    sendText(jsonEncode(payload));
+  }
+
   void sendAbortSpeaking({required String reason}) {
     final msg = {'type': 'abort', 'reason': reason};
     sendText(jsonEncode(msg));

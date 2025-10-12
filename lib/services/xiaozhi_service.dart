@@ -617,6 +617,33 @@ class XiaozhiService {
         }
         _connectionController.add(true);
         debugPrint('WebSocket 连接成功, session: $_sessionId');
+
+        // 根据当前模式发送会话信息
+        try {
+          final info = _buildSessionInfo();
+          if (info != null) {
+            _protocol?.sendSessionInfo(info);
+            debugPrint('📤 已发送 session_info');
+          }
+        } catch (e) {
+          debugPrint('发送 session_info 失败: $e');
+        }
+
+        if (_isInRealtimeMode) {
+          Future.microtask(() async {
+            try {
+              debugPrint('📡 hello 已确认，开始 listenStart(realtime)');
+              await listenStart(mode: 'realtime');
+              if (!_keepListening) {
+                setKeepListening(true);
+              }
+              final micStarted = await startMic();
+              debugPrint('🎤 hello 后麦克风启动: ${micStarted ? "成功" : "失败"}');
+            } catch (e) {
+              debugPrint('hello 回包后启动监听失败: $e');
+            }
+          });
+        }
       };
 
       // 只使用统一的TTS/LLM处理器，避免重复处理
@@ -905,6 +932,22 @@ class XiaozhiService {
   /// 控制是否启用打断（默认启用）
   void setBargeInEnabled(bool enabled) {
     _bargeInEnabled = enabled;
+  }
+
+  Map<String, dynamic>? _buildSessionInfo() {
+    try {
+      final info = <String, dynamic>{
+        'mode': _isInRealtimeMode ? 'realtime' : 'manual',
+        'client': {
+          'platform': 'flutter',
+          'version': '2.0.0',
+        },
+      };
+      return info;
+    } catch (e) {
+      debugPrint('构建 session_info 失败: $e');
+      return null;
+    }
   }
 
   void _emitAiMessage(String text, {String? emoji, bool isComplete = false}) {
