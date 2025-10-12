@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  web:
+    build: .
+    image: call-clock-server:latest
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "5000:5000"
+    depends_on: [] # 如果你使用 compose 启动 mysql 服务，则在此添加 mysql
+    networks:
+      - callclock-net
+
+networks:
+  callclock-net:
+    external: true # 假设你已有一个外部网络，把你的 mysql 容器也加入该网络
+
+# 使用说明:
+# - 如果你的 MySQL 已经用 docker 启动: 将该 MySQL 容器加入名为 `callclock-net` 的网络
+#     docker network create callclock-net      # 仅第一次需要
+#     docker network connect callclock-net <mysql-container>
+# - 然后在 server 目录运行:
+#     docker compose up -d --build
+# - 如果没有外部网络, 将 networks.callclock-net.external 改为 false 或移除, 并在此文件中定义 mysql 服务

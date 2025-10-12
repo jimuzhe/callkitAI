@@ -1,0 +1,88 @@
+name: iOS IPA Build
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'lib/**'
+      - 'ios/**'
+      - 'pubspec.yaml'
+      - '.github/workflows/ios-ipa.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+
+      - name: Clean and get dependencies
+        run: |
+          flutter clean
+          flutter pub get
+
+      - name: Create .env file from example
+        run: cp .env.example .env
+
+      - name: Generate code with build_runner
+        run: |
+          dart run build_runner build --delete-conflicting-outputs
+
+      - name: Install pods
+        run: pod install --repo-update
+        working-directory: ios
+
+      # 构建未签名的 iOS 应用
+      - name: Build unsigned iOS app
+        run: |
+          # 先构建 iOS app
+          flutter build ios --release --no-codesign
+          
+          # 创建归档
+          xcodebuild archive \
+            -workspace ios/Runner.xcworkspace \
+            -scheme Runner \
+            -configuration Release \
+            -archivePath build/ios/Runner.xcarchive \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+          
+          # 创建 IPA 目录
+          mkdir -p build/ios/ipa
+          
+          # 手动打包成 IPA
+          echo "Creating IPA manually..."
+          cd build/ios/Runner.xcarchive/Products/Applications
+          mkdir Payload
+          cp -r Runner.app Payload/
+          zip -r ../../../ipa/call-clock.ipa Payload
+          cd -
+          
+          # 验证 IPA 已创建
+          ls -lh build/ios/ipa/
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-ipa
+          path: build/ios/ipa/*.ipa
+          if-no-files-found: error
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs
+          path: |
+            build/ios
+            ios/Runner.xcodeproj/project.pbxproj
+          if-no-files-found: ignore
