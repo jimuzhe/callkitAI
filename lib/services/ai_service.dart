@@ -4,6 +4,7 @@ import 'persona_store.dart';
 import '../models/alarm.dart';
 import 'ai_call_manager.dart';
 import 'xiaozhi_service.dart';
+import 'callkit_service.dart';
 
 /// AIService: bridges alarm -> realtime AI call workflow.
 class AIService {
@@ -12,11 +13,21 @@ class AIService {
   AIService._internal();
 
   StreamSubscription<bool>? _connSub;
+  bool _isCallKitSession = false;
+  String? _callKitCallId;
 
   /// Start a realtime conversation for the given alarm, then send a directive
   /// text to the AI right after the connection is established.
   Future<void> startConversation({required Alarm alarm}) async {
     try {
+      // 检查是否在CallKit会话中
+      _isCallKitSession = CallKitService.instance.isInCallKitSession;
+      _callKitCallId = CallKitService.instance.currentCallId;
+      
+      if (_isCallKitSession) {
+        debugPrint('🤖 在CallKit会话中启动AI对话 (CallID: $_callKitCallId)');
+      }
+      
       // Always use realtime mode for alarm-initiated calls
       await AICallManager.instance.startCall(AICallMode.realtime);
 
@@ -24,6 +35,10 @@ class AIService {
       await _sendDirectiveAfterConnected(alarm);
     } catch (e) {
       debugPrint('AIService.startConversation failed: $e');
+      // 如果在CallKit会话中启动失败，结束CallKit通话
+      if (_isCallKitSession && _callKitCallId != null) {
+        await CallKitService.instance.endCall(_callKitCallId!);
+      }
     }
   }
 
@@ -31,11 +46,23 @@ class AIService {
     // Forward to AICallManager to gracefully end
     try {
       await AICallManager.instance.endCall();
+      debugPrint('🛑 AI对话已停止');
+      
+      // 如果在CallKit会话中，也结束CallKit通话（如果还没结束的话）
+      if (_isCallKitSession && _callKitCallId != null) {
+        if (CallKitService.instance.isInCallKitSession && 
+            CallKitService.instance.currentCallId == _callKitCallId) {
+          debugPrint('🔚 AI对话结束，同步结束CallKit通话');
+          await CallKitService.instance.endCall(_callKitCallId!);
+        }
+      }
     } catch (e) {
       debugPrint('AIService.stopConversation failed: $e');
     } finally {
       await _connSub?.cancel();
       _connSub = null;
+      _isCallKitSession = false;
+      _callKitCallId = null;
     }
   }
 

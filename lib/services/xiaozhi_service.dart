@@ -540,8 +540,13 @@ class XiaozhiService {
 
   // 建立 WebSocket 连接并发送 hello
   Future<void> connect({bool realtime = false}) async {
+    debugPrint('🔌 [连接] 开始连接流程 (${realtime ? "实时" : "回合"}模式)');
+    
     // 若已有连接，先断开
-    await disconnect();
+    if (_ws != null) {
+      debugPrint('🔌 [连接] 检测到已有连接，先断开...');
+      await disconnect();
+    }
 
     final wsUrl = await getWsUrl();
     final deviceId = await getDeviceId();
@@ -549,17 +554,29 @@ class XiaozhiService {
     final token = await getAccessToken();
 
     // 调试日志：显示读取到的配置
-    debugPrint('📡 准备建立连接 (${realtime ? "实时" : "回合"}模式)');
+    debugPrint('📡 [配置] 准备建立连接 (${realtime ? "实时" : "回合"}模式)');
     debugPrint('   WsUrl: $wsUrl');
     debugPrint('   DeviceId: $deviceId');
     debugPrint('   ClientId: $clientId');
     debugPrint('   Token长度: ${token.length}');
 
-    // access token 可选：记录提示但不阻止连接（Web 端通过 query 传参，IO 端通过 Authorization header）
+    // 验证必要参数
+    if (wsUrl.isEmpty) {
+      debugPrint('❌ [配置] 错误: WebSocket URL 为空');
+      throw Exception('WebSocket URL 未配置');
+    }
+    if (deviceId.isEmpty) {
+      debugPrint('❌ [配置] 错误: DeviceId 为空');
+      throw Exception('DeviceId 未配置');
+    }
+    if (clientId.isEmpty) {
+      debugPrint('❌ [配置] 错误: ClientId 为空');
+      throw Exception('ClientId 未配置');
+    }
+
+    // access token 可选：记录提示但不阻止连接
     if (token.isEmpty) {
-      debugPrint(
-        '⚠️ Warning: access token is empty; proceeding without authorization header.',
-      );
+      debugPrint('⚠️ [认证] 警告: access token 为空，将不带认证信息连接');
     } else {
       // 掩码显示 token
       final masked = token.length > 10
@@ -572,6 +589,7 @@ class XiaozhiService {
     // 设置内部 realtime 标志，供后续逻辑（例如 TTS 结束后重启麦克风）使用
     _isInRealtimeMode = realtime;
     _resetPendingAiOutput();
+    
     // 若需要 realtime 模式，改用服务端约定的绝对路径 /realtime_chat 并确保必要参数
     Map<String, String> baseQuery = Map<String, String>.from(
       uri.queryParameters,
@@ -588,22 +606,40 @@ class XiaozhiService {
       final qm = Map<String, String>.from(baseQuery);
       qm.putIfAbsent('sample_rate', () => '16000');
       uri = uri.replace(queryParameters: qm);
+      debugPrint('🔌 [路径] 实时模式路径: $newPath');
     }
 
     if (!realtime) {
       uri = uri.replace(queryParameters: baseQuery);
     }
-    // 通过平台适配的连接器设置 Header（IO）或 Query（Web）
-    _protocol = XiaozhiProtocol.connect(
-      uri: uri,
-      accessToken: token,
-      protocolVersion: '1',
-      deviceId: deviceId,
-      clientId: clientId,
-    );
-    _ws = _protocol!.channel;
-    // 标记为已连接（WebSocket 无 session_id）
-    _connectionController.add(true);
+    
+    debugPrint('🔌 [URI] 最终连接地址: $uri');
+    
+    // 启用自动重连
+    _shouldReconnect = true;
+    _reconnectAttempts = 0;
+    
+    try {
+      // 通过平台适配的连接器设置 Header（IO）或 Query（Web）
+      debugPrint('🔌 [WebSocket] 正在建立WebSocket连接...');
+      _protocol = XiaozhiProtocol.connect(
+        uri: uri,
+        accessToken: token,
+        protocolVersion: '1',
+        deviceId: deviceId,
+        clientId: clientId,
+      );
+      _ws = _protocol!.channel;
+      debugPrint('✅ [WebSocket] WebSocket连接已建立');
+      
+      // 标记为已连接（WebSocket 无 session_id）
+      _connectionController.add(true);
+    } catch (e, stackTrace) {
+      debugPrint('❌ [WebSocket] 建立WebSocket连接失败: $e');
+      debugPrint('📍 [堆栈] $stackTrace');
+      _connectionController.add(false);
+      throw Exception('WebSocket连接失败: $e');
+    }
 
     // 监听消息 -> 使用分发器处理 incoming messages
     try {
@@ -616,31 +652,40 @@ class XiaozhiService {
           _sessionId = msg['session_id'].toString();
         }
         _connectionController.add(true);
-        debugPrint('WebSocket 连接成功, session: $_sessionId');
+        debugPrint('✅ [Hello] WebSocket 连接成功, session: $_sessionId');
 
         // 根据当前模式发送会话信息
         try {
           final info = _buildSessionInfo();
           if (info != null) {
             _protocol?.sendSessionInfo(info);
-            debugPrint('📤 已发送 session_info');
+            debugPrint('📤 [SessionInfo] 已发送 session_info');
           }
         } catch (e) {
-          debugPrint('发送 session_info 失败: $e');
+          debugPrint('❌ [SessionInfo] 发送 session_info 失败: $e');
         }
+
+        // 启动心跳
+        _startHeartbeat();
+        debugPrint('💓 [心跳] 心跳已启动');
 
         if (_isInRealtimeMode) {
           Future.microtask(() async {
             try {
-              debugPrint('📡 hello 已确认，开始 listenStart(realtime)');
+              debugPrint('🎤 [实时模式] hello 已确认，开始 listenStart(realtime)');
               await listenStart(mode: 'realtime');
               if (!_keepListening) {
                 setKeepListening(true);
               }
+              
+              // 关键修复：延迟启动麦克风，确保服务器先处理 listen.start 消息
+              debugPrint('⏱️ [实时模式] 等待500ms让服务器处理 listen.start...');
+              await Future.delayed(const Duration(milliseconds: 500));
+              
               final micStarted = await startMic();
-              debugPrint('🎤 hello 后麦克风启动: ${micStarted ? "成功" : "失败"}');
+              debugPrint('🎤 [麦克风] hello 后麦克风启动: ${micStarted ? "成功" : "失败"}');
             } catch (e) {
-              debugPrint('hello 回包后启动监听失败: $e');
+              debugPrint('❌ [实时模式] hello 回包后启动监听失败: $e');
             }
           });
         }

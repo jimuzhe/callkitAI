@@ -360,7 +360,7 @@ class AICallManager {
         state: _currentSession.isRealtimeMode
             ? AICallState.listening
             : AICallState.manual,
-        isTalking: _currentSession.isRealtimeMode,
+        isTalking: true, // 修复：回合模式按住时也应该显示为正在说话
         isRecording: true,
       ),
     );
@@ -382,6 +382,17 @@ class AICallManager {
 
       HapticsService.instance.impact();
       _addDebugLog('语音输入启动${micStarted ? "成功" : "失败"}');
+      
+      // 如果启动失败，立即更新状态
+      if (!micStarted) {
+        _updateSession(
+          _currentSession.copyWith(
+            state: AICallState.idle,
+            isTalking: false,
+            isRecording: false,
+          ),
+        );
+      }
     } catch (e) {
       _addDebugLog('语音输入启动失败: $e');
       // 如果启动失败，恢复状态
@@ -419,22 +430,27 @@ class AICallManager {
       if (_currentSession.isRealtimeMode) {
         // 实时模式：保持监听，不关闭麦克风
         XiaozhiService.instance.setKeepListening(true);
+        // 更新状态为继续监听
+        _updateSession(
+          _currentSession.copyWith(
+            state: AICallState.listening,
+            isTalking: true, // 实时模式保持可说话状态
+            isRecording: false,
+          ),
+        );
       } else {
-        // 回合模式：停止监听
+        // 回合模式：停止监听，恢复手动状态
         XiaozhiService.instance.setKeepListening(false);
         await XiaozhiService.instance.listenStop();
+        // 更新状态为手动模式
+        _updateSession(
+          _currentSession.copyWith(
+            state: AICallState.manual,
+            isTalking: false, // 回合模式松开后不保持说话状态
+            isRecording: false,
+          ),
+        );
       }
-
-      // 更新状态
-      _updateSession(
-        _currentSession.copyWith(
-          state: _currentSession.isRealtimeMode
-              ? AICallState.listening
-              : AICallState.manual,
-          isTalking: _currentSession.isRealtimeMode,
-          isRecording: false,
-        ),
-      );
 
       HapticsService.instance.selection();
       _addDebugLog('语音输入已停止');
