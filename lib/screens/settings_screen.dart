@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../services/haptics_service.dart';
 import '../providers/theme_provider.dart';
 import '../models/ai_persona.dart';
+import '../services/persona_store.dart';
 import '../widgets/metallic_card.dart';
 import '../services/weather_service.dart';
 import '../pages/audio_test_page.dart';
@@ -72,7 +73,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _vibrationEnabled = prefs.getBool('vibration_enabled') ?? true;
       _vibrationIntensity = prefs.getInt('vibration_intensity') ?? 1;
       final personaId = prefs.getString('default_persona_id') ?? 'gentle';
-      _defaultPersonaName = AIPersona.getById(personaId).name;
       _weatherApiKey = key ?? '';
       _weatherApiHost = host ?? '';
       _weatherLocation = prefs.getString('weather_location') ?? '101010100';
@@ -88,6 +88,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _panicNotificationInterval =
           prefs.getInt('panic_notification_interval') ?? 3;
     });
+
+    try {
+      final persona = await PersonaStore.instance.getByIdMerged(personaId);
+      if (persona != null && mounted) {
+        setState(() {
+          _defaultPersonaName = persona.name;
+        });
+      } else if (mounted) {
+        setState(() {
+          _defaultPersonaName = AIPersona.getById(personaId).name;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _defaultPersonaName = AIPersona.getById(personaId).name;
+        });
+      }
+    }
 
     if (keepAliveEnabled) {
       await AudioService.instance.ensureBackgroundKeepAlive();
