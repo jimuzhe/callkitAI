@@ -23,6 +23,8 @@ dependencies:
   path_provider: ^2.0.12
   synchronized: ^3.0.1
   shared_preferences: ^2.2.2
+  opus_dart: ^3.0.1
+  opus_flutter: ^3.0.3
   
   # 闹钟与通知 (iOS)
   flutter_local_notifications: ^16.3.0
@@ -37,8 +39,6 @@ dependencies:
   record_darwin: ^1.2.2
   just_audio: ^0.9.36
   audio_session: ^0.1.18
-  opus_flutter: ^3.0.3
-  opus_dart: ^3.0.1
   flutter_sound: ^9.2.13  # PCM流式播放支持
   volume_controller: ^2.0.7  # 音量控制
 

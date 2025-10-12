@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
@@ -9,6 +10,7 @@ import 'xiaozhi_protocol.dart';
 import 'xiaozhi_dispatcher.dart';
 import 'xiaozhi_mic.dart';
 import 'pcm_stream_service.dart';
+import '../utils/audio_codec.dart';
 import 'package:uuid/uuid.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:math';
@@ -59,6 +61,8 @@ class XiaozhiService {
   static const int _sampleRate = 16000;
   static const int _channels = 1;
   static const int _frameDuration = 60; // ms
+  static const int _samplesPerFrame = (_sampleRate * _frameDuration) ~/ 1000;
+  static const int _frameBytes = _samplesPerFrame * 2;
 
   // 统一使用 Opus，便于在本地解码为 PCM 并进行流式播放（更稳定，延迟更低）
   String get _preferredAudioFormat {
@@ -71,6 +75,8 @@ class XiaozhiService {
   late final Dio _dio = Dio();
   StreamSubscription<List<int>>? _micSub;
   final XiaozhiMic _webMic = XiaozhiMic();
+  final ListQueue<int> _pcmQueue = ListQueue<int>();
+  Future<void> _encodingChain = Future.value();
 
   // 统一的设备状态机
   DeviceState _deviceState = DeviceState.idle;
@@ -1433,7 +1439,9 @@ class XiaozhiService {
       }
       // 第一帧也输出日志
       if (_micChunkCount == 1) {
-        debugPrint('🎤 开始发送音频帧 (${bytes.length} bytes, deviceState: ${_deviceState.name})');
+        debugPrint(
+          '🎤 开始发送音频帧 (${bytes.length} bytes, deviceState: ${_deviceState.name})',
+        );
       }
     } catch (e) {
       debugPrint('🔴 发送音频帧失败: $e');
@@ -1573,7 +1581,9 @@ class XiaozhiService {
     try {
       // 重置音频帧计数器
       _micChunkCount = 0;
-      
+      _pcmQueue.clear();
+      _encodingChain = Future.value();
+
       await _micSub?.cancel();
       _micSub = null;
 
@@ -1582,7 +1592,7 @@ class XiaozhiService {
         _micSub = _webMic.audioStream().listen((bytes) {
           final u8 = Uint8List.fromList(bytes);
           _feedVad(u8, sampleRate: _sampleRate, channels: _channels);
-          _sendAudioFrame(u8);
+          _handleOutgoingPcm(u8);
         });
       } else {
         // 直接开始录音，避免再次调用 initialize() 将会话切回播放模式
@@ -1591,7 +1601,7 @@ class XiaozhiService {
             ?.map(Uint8List.fromList)
             .listen((u8) {
               _feedVad(u8, sampleRate: _sampleRate, channels: _channels);
-              _sendAudioFrame(u8);
+              _handleOutgoingPcm(u8);
             });
       }
 
@@ -1612,7 +1622,11 @@ class XiaozhiService {
   Future<void> _stopMicInternal() async {
     // 在停止前先等待一下，确保最后的音频帧能发送完成
     await Future.delayed(const Duration(milliseconds: 100));
-    
+    _flushRemainingPcm();
+    try {
+      await _encodingChain;
+    } catch (_) {}
+
     try {
       await _micSub?.cancel();
     } catch (_) {}
@@ -1634,21 +1648,61 @@ class XiaozhiService {
 
     _deviceState = DeviceState.idle;
     debugPrint('🎤 麦克风已停止，已发送 $_micChunkCount 帧音频');
+    _pcmQueue.clear();
+    _encodingChain = Future.value();
+  }
+
+  void _handleOutgoingPcm(Uint8List pcmChunk) {
+    if (pcmChunk.isEmpty) return;
+    _pcmQueue.addAll(pcmChunk);
+    while (_pcmQueue.length >= _frameBytes) {
+      final frame = Uint8List(_frameBytes);
+      for (var i = 0; i < _frameBytes; i++) {
+        frame[i] = _pcmQueue.removeFirst();
+      }
+      _scheduleOpusEncode(frame);
+    }
+  }
+
+  void _scheduleOpusEncode(Uint8List frame) {
+    _encodingChain = _encodingChain.then((_) async {
+      try {
+        final encoded = await AudioCodec.instance.pcmToOpus(
+          pcmData: frame,
+          sampleRate: _sampleRate,
+          frameDuration: _frameDuration,
+        );
+        if (encoded == null || encoded.isEmpty) {
+          debugPrint('⚠️ Opus 编码失败，丢弃一帧音频');
+          return;
+        }
+        _sendAudioFrame(encoded);
+      } catch (e, stack) {
+        debugPrint('❌ Opus 编码流程异常: $e');
+        debugPrint('📍 $stack');
+      }
+    });
+  }
+
+  void _flushRemainingPcm() {
+    if (_pcmQueue.isEmpty) return;
+    while (_pcmQueue.isNotEmpty) {
+      final frame = Uint8List(_frameBytes);
+      for (var i = 0; i < _frameBytes; i++) {
+        if (_pcmQueue.isNotEmpty) {
+          frame[i] = _pcmQueue.removeFirst();
+        } else {
+          frame[i] = 0; // padding
+        }
+      }
+      _scheduleOpusEncode(frame);
+    }
   }
 
   Future<void> listenStart({String mode = 'manual'}) async {
     if (_ws == null) return;
     _isInRealtimeMode = (mode == 'realtime' || mode == 'auto');
     _resetPendingAiOutput();
-
-    final msg = <String, dynamic>{
-      'type': 'listen',
-      'state': 'start',
-      'mode': mode,
-    };
-    if (_sessionId != null && _sessionId!.isNotEmpty) {
-      msg['session_id'] = _sessionId!;
-    }
 
     try {
       _protocol?.sendStartListening(mode: mode, sessionId: _sessionId);
