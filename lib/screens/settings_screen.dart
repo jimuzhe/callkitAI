@@ -900,50 +900,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  void _showPersonaSelector(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      builder: (context) {
-        return Container(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                '选择默认AI人设',
-                style: Theme.of(
-                  context,
-                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 16),
-              ...AIPersona.presets.map((persona) {
-                return ListTile(
-                  leading: Text(
-                    persona.emoji,
-                    style: const TextStyle(fontSize: 32),
-                  ),
-                  title: Text(persona.name),
-                  subtitle: Text(persona.description),
-                  onTap: () async {
-                    await HapticsService.instance.impact();
-                    await _saveDefaultPersona(persona.id);
-                    setState(() {
-                      _defaultPersonaName = persona.name;
-                    });
-                    if (mounted) {
-                      Navigator.pop(context);
-                    }
-                  },
-                );
-              }),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
   void _showVibrationIntensitySelector(BuildContext context) {
     showModalBottomSheet(
       context: context,
