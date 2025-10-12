@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../models/alarm.dart';
 import 'api_config.dart';
@@ -11,18 +13,40 @@ class AlarmApiService {
   // 动态获取API配置
   Future<String> get _baseUrl async => await ApiConfig.instance.getBaseUrl();
   Future<String> get _userId async => await ApiConfig.instance.getUserId();
+  final http.Client _client = http.Client();
+  Duration requestTimeout = const Duration(seconds: 4);
+
+  Future<T?> _guardRequest<T>(Future<T> future) async {
+    try {
+      return await future.timeout(requestTimeout);
+    } on TimeoutException catch (e) {
+      debugPrint('AlarmApiService timeout: $e');
+      return null;
+    } catch (e) {
+      debugPrint('AlarmApiService error: $e');
+      rethrow;
+    }
+  }
+
+  Future<http.Response?> _get(Uri uri) => _guardRequest(_client.get(uri, headers: _jsonHeaders));
+  Future<http.Response?> _post(Uri uri, {Object? body}) =>
+      _guardRequest(_client.post(uri, headers: _jsonHeaders, body: body));
+  Future<http.Response?> _put(Uri uri, {Object? body}) =>
+      _guardRequest(_client.put(uri, headers: _jsonHeaders, body: body));
+  Future<http.Response?> _delete(Uri uri) =>
+      _guardRequest(_client.delete(uri, headers: _jsonHeaders));
+  Future<http.Response?> _patch(Uri uri, {Object? body}) =>
+      _guardRequest(_client.patch(uri, headers: _jsonHeaders, body: body));
+
+  Map<String, String> get _jsonHeaders => {'Content-Type': 'application/json'};
 
   /// 获取所有闹钟
   Future<List<Alarm>> getAllAlarms() async {
     try {
       final baseUrl = await _baseUrl;
       final userId = await _userId;
-      final response = await http.get(
-        Uri.parse('$baseUrl/alarms?user_id=$userId'),
-        headers: {'Content-Type': 'application/json'},
-      );
-
-      if (response.statusCode == 200) {
+      final response = await _get(Uri.parse('$baseUrl/alarms?user_id=$userId'));
+      if (response != null && response.statusCode == 200) {
         final data = jsonDecode(response.body);
         if (data['success'] == true && data['data'] != null) {
           final List<dynamic> alarmsData = data['data'];
@@ -40,12 +64,8 @@ class AlarmApiService {
   Future<Alarm?> getAlarmById(String id) async {
     try {
       final baseUrl = await _baseUrl;
-      final response = await http.get(
-        Uri.parse('$baseUrl/alarms/$id'),
-        headers: {'Content-Type': 'application/json'},
-      );
-
-      if (response.statusCode == 200) {
+      final response = await _get(Uri.parse('$baseUrl/alarms/$id'));
+      if (response != null && response.statusCode == 200) {
         final data = jsonDecode(response.body);
         if (data['success'] == true && data['data'] != null) {
           return _alarmFromApiJson(data['data']);
@@ -64,13 +84,12 @@ class AlarmApiService {
       final body = await _alarmToApiJson(alarm);
       final baseUrl = await _baseUrl;
       
-      final response = await http.post(
+      final response = await _post(
         Uri.parse('$baseUrl/alarms'),
-        headers: {'Content-Type': 'application/json'},
         body: jsonEncode(body),
       );
 
-      if (response.statusCode == 201) {
+      if (response != null && response.statusCode == 201) {
         final data = jsonDecode(response.body);
         if (data['success'] == true) {
           return alarm.id; // 返回闹钟ID
@@ -89,13 +108,12 @@ class AlarmApiService {
       final body = await _alarmToApiJson(alarm);
       final baseUrl = await _baseUrl;
       
-      final response = await http.put(
+      final response = await _put(
         Uri.parse('$baseUrl/alarms/${alarm.id}'),
-        headers: {'Content-Type': 'application/json'},
         body: jsonEncode(body),
       );
 
-      if (response.statusCode == 200) {
+      if (response != null && response.statusCode == 200) {
         final data = jsonDecode(response.body);
         return data['success'] == true;
       }
@@ -110,12 +128,8 @@ class AlarmApiService {
   Future<bool> deleteAlarm(String id) async {
     try {
       final baseUrl = await _baseUrl;
-      final response = await http.delete(
-        Uri.parse('$baseUrl/alarms/$id'),
-        headers: {'Content-Type': 'application/json'},
-      );
-
-      if (response.statusCode == 200) {
+      final response = await _delete(Uri.parse('$baseUrl/alarms/$id'));
+      if (response != null && response.statusCode == 200) {
         final data = jsonDecode(response.body);
         return data['success'] == true;
       }
@@ -130,13 +144,12 @@ class AlarmApiService {
   Future<bool> toggleAlarm(String id, bool enabled) async {
     try {
       final baseUrl = await _baseUrl;
-      final response = await http.patch(
+      final response = await _patch(
         Uri.parse('$baseUrl/alarms/$id/toggle'),
-        headers: {'Content-Type': 'application/json'},
         body: jsonEncode({'is_enabled': enabled}),
       );
 
-      if (response.statusCode == 200) {
+      if (response != null && response.statusCode == 200) {
         final data = jsonDecode(response.body);
         return data['success'] == true;
       }
@@ -197,11 +210,8 @@ class AlarmApiService {
     try {
       final baseUrl = await _baseUrl;
       final healthUri = Uri.parse(baseUrl).resolve('/health');
-      final response = await http.get(
-        healthUri,
-        headers: {'Content-Type': 'application/json'},
-      );
-      return response.statusCode == 200;
+      final response = await _get(healthUri);
+      return response != null && response.statusCode == 200;
     } catch (e) {
       print('健康检查失败: $e');
       return false;

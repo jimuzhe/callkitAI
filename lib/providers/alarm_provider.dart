@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 import '../models/alarm.dart';
@@ -104,7 +105,7 @@ class AlarmProvider extends ChangeNotifier {
     await loadAlarms();
     
     // 触发增量同步
-    _syncManager.triggerIncrementalSync();
+    unawaited(_syncManager.triggerIncrementalSync());
   }
 
   Future<void> updateAlarm(Alarm alarm) async {
@@ -121,7 +122,7 @@ class AlarmProvider extends ChangeNotifier {
     await loadAlarms();
     
     // 触发增量同步
-    _syncManager.triggerIncrementalSync();
+    unawaited(_syncManager.triggerIncrementalSync());
   }
 
   Future<void> toggleAlarm(String id, bool enabled) async {
@@ -140,7 +141,7 @@ class AlarmProvider extends ChangeNotifier {
     await loadAlarms();
     
     // 触发增量同步
-    _syncManager.triggerIncrementalSync();
+    unawaited(_syncManager.triggerIncrementalSync());
   }
 
   Future<void> _scheduleAlarm(Alarm alarm) async {

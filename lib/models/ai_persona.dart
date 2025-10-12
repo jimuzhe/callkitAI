@@ -7,6 +7,8 @@ class AIPersona {
   final String openingLine;
   final String voiceId; // TTS音色ID
   final List<String> features;
+  final bool isActive;
+  final bool isDefault;
 
   const AIPersona({
     required this.id,
@@ -17,6 +19,8 @@ class AIPersona {
     required this.openingLine,
     required this.voiceId,
     required this.features,
+    this.isActive = true,
+    this.isDefault = false,
   });
 
   static const List<AIPersona> presets = [
@@ -41,6 +45,7 @@ class AIPersona {
       openingLine: '喂，亲爱的，早上好呀~ 太阳都升起来了，你也该起床迎接这美好的一天了呢！',
       voiceId: 'nova',
       features: ['温柔关怀', '耐心引导', '情感支持'],
+      isDefault: true,
     ),
     AIPersona(
       id: 'energetic',
@@ -63,6 +68,7 @@ class AIPersona {
       openingLine: '喂，冠军！新的一天开始了，今天你要实现什么目标？让我们一起冲鸭吧！',
       voiceId: 'alloy',
       features: ['动机激发', '目标设定', '正能量输出'],
+      isDefault: true,
     ),
     AIPersona(
       id: 'informative',
@@ -85,6 +91,7 @@ class AIPersona {
       openingLine: '喂，早上好！这里是你的专属新闻播报，现在为你快速播报今天的关键信息。',
       voiceId: 'echo',
       features: ['高效信息', '专业播报', '精准传达'],
+      isDefault: true,
     ),
     AIPersona(
       id: 'humorous',
@@ -107,6 +114,7 @@ class AIPersona {
       openingLine: '喂！早上好啊，我是你的搜笑AI闹钟。偶买噶，被子和你的关系已经持续8小时了，该“分手”了吧？',
       voiceId: 'fable',
       features: ['幽默搜笑', '冷知识分享', '轻松愉快'],
+      isDefault: true,
     ),
     AIPersona(
       id: 'strict',
@@ -129,6 +137,7 @@ class AIPersona {
       openingLine: '喂！时间已经不等人了，立即起床！你的任务等着你，没有任何借口可以拖延！',
       voiceId: 'onyx',
       features: ['坚决不妥协', '事实说话', '紧迫感强'],
+      isDefault: true,
     ),
   ];
 
@@ -148,6 +157,8 @@ class AIPersona {
         'openingLine': openingLine,
         'voiceId': voiceId,
         'features': features,
+        'isActive': isActive,
+        'isDefault': isDefault,
       };
 
   factory AIPersona.fromMap(Map<String, dynamic> map) {
@@ -160,6 +171,57 @@ class AIPersona {
       openingLine: (map['openingLine'] ?? '') as String,
       voiceId: (map['voiceId'] ?? '') as String,
       features: (map['features'] as List?)?.cast<String>() ?? const <String>[],
+      isActive: _asBool(map['isActive'] ?? map['is_active'], true),
+      isDefault: _asBool(map['isDefault'] ?? map['is_default'], false),
     );
+  }
+
+  factory AIPersona.fromApi(Map<String, dynamic> map) {
+    final rawFeatures = map['features'];
+    final list = rawFeatures is List
+        ? rawFeatures.map((e) => e.toString()).toList(growable: false)
+        : rawFeatures is String
+            ? rawFeatures
+                .split(',')
+                .map((e) => e.trim())
+                .where((e) => e.isNotEmpty)
+                .toList(growable: false)
+            : const <String>[];
+    return AIPersona(
+      id: (map['id'] ?? '') as String,
+      name: (map['name'] ?? '') as String,
+      description: (map['description'] ?? '') as String,
+      emoji: (map['emoji'] ?? '🙂') as String,
+      systemPrompt: (map['system_prompt'] ?? '') as String,
+      openingLine: (map['opening_line'] ?? '') as String,
+      voiceId: (map['voice_id'] ?? '') as String,
+      features: list,
+      isActive: _asBool(map['is_active'], true),
+      isDefault: _asBool(map['is_default'], false),
+    );
+  }
+
+  Map<String, dynamic> toApiPayload() => {
+        'id': id,
+        'name': name,
+        'description': description,
+        'emoji': emoji,
+        'system_prompt': systemPrompt,
+        'opening_line': openingLine,
+        'voice_id': voiceId,
+        'features': features,
+        'is_active': isActive,
+        'is_default': isDefault,
+      };
+
+  static bool _asBool(dynamic value, bool fallback) {
+    if (value == null) return fallback;
+    if (value is bool) return value;
+    if (value is num) return value != 0;
+    if (value is String) {
+      final lowered = value.toLowerCase();
+      return lowered == 'true' || lowered == '1';
+    }
+    return fallback;
   }
 }

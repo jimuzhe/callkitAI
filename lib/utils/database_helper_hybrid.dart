@@ -1,3 +1,4 @@
+import 'dart:async';
 import '../models/alarm.dart';
 import '../services/alarm_api_service.dart';
 import 'database_helper_io.dart' as local_db;
@@ -13,7 +14,15 @@ class DatabaseHelperHybrid {
   
   // 是否使用API模式
   bool _useApi = true;
-  
+
+  void _fireAndForget(Future<void> Function() task, String debugTag) {
+    unawaited(
+      task().catchError((error, stack) {
+        print('[$debugTag] 远程操作失败: $error');
+      }),
+    );
+  }
+
   /// 检查API是否可用
   Future<bool> checkApiAvailable() async {
     return await _apiService.checkHealth();
@@ -52,16 +61,14 @@ class DatabaseHelperHybrid {
     await _localDb.createAlarm(alarm);
     
     if (_useApi) {
-      try {
+      _fireAndForget(() async {
         final result = await _apiService.createAlarm(alarm);
         if (result != null) {
-          print('闹钟已同步到远程服务器');
+          print('[createAlarm] 闹钟已同步到远程服务器');
         } else {
-          print('远程同步失败，仅保存在本地');
+          print('[createAlarm] 远程同步失败，仅保存在本地');
         }
-      } catch (e) {
-        print('API创建闹钟失败，仅保存在本地: $e');
-      }
+      }, 'createAlarm');
     }
     
     return alarm;
@@ -100,16 +107,14 @@ class DatabaseHelperHybrid {
     final localResult = await _localDb.updateAlarm(alarm);
     
     if (_useApi) {
-      try {
+      _fireAndForget(() async {
         final success = await _apiService.updateAlarm(alarm);
         if (success) {
-          print('闹钟已同步到远程服务器');
+          print('[updateAlarm] 闹钟已同步到远程服务器');
         } else {
-          print('远程同步失败，仅更新本地');
+          print('[updateAlarm] 远程同步失败，仅更新本地');
         }
-      } catch (e) {
-        print('API更新闹钟失败，仅更新本地: $e');
-      }
+      }, 'updateAlarm');
     }
     
     return localResult;
@@ -121,16 +126,14 @@ class DatabaseHelperHybrid {
     final localResult = await _localDb.deleteAlarm(id);
     
     if (_useApi) {
-      try {
+      _fireAndForget(() async {
         final success = await _apiService.deleteAlarm(id);
         if (success) {
-          print('闹钟已从远程服务器删除');
+          print('[deleteAlarm] 闹钟已从远程服务器删除');
         } else {
-          print('远程删除失败，仅删除本地');
+          print('[deleteAlarm] 远程删除失败，仅删除本地');
         }
-      } catch (e) {
-        print('API删除闹钟失败，仅删除本地: $e');
-      }
+      }, 'deleteAlarm');
     }
     
     return localResult;

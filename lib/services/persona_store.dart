@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/ai_persona.dart';
+import 'persona_api_service.dart';
 
 /// Lightweight store for user-defined AI personas persisted in SharedPreferences.
 /// Saved under the key 'custom_personas' as a JSON array of objects.
@@ -9,6 +10,7 @@ class PersonaStore {
   PersonaStore._();
 
   static const String _prefsKey = 'custom_personas';
+  final _api = PersonaApiService.instance;
 
   Future<List<AIPersona>> loadCustom() async {
     final prefs = await SharedPreferences.getInstance();
@@ -32,12 +34,26 @@ class PersonaStore {
   }
 
   Future<List<AIPersona>> getAllMerged() async {
+    final remote = await _api.getAllPersonas();
+    if (remote != null) {
+      final remoteIds = remote.map((p) => p.id).toSet();
+      final cached = await loadCustom();
+      final unsynced = cached.where((p) => !remoteIds.contains(p.id)).toList();
+      final remoteCustom = remote.where((p) => !p.isDefault).toList();
+      await saveCustom([...remoteCustom, ...unsynced]);
+      return [...remote, ...unsynced];
+    }
+
     final custom = await loadCustom();
-    // Presets first or custom first is a UX choice. We'll show presets first.
     return [...AIPersona.presets, ...custom];
   }
 
   Future<AIPersona?> getByIdMerged(String id) async {
+    final remote = await _api.getPersona(id);
+    if (remote != null) {
+      return remote;
+    }
+
     final custom = await loadCustom();
     final foundCustom = custom.where((p) => p.id == id).toList();
     if (foundCustom.isNotEmpty) return foundCustom.first;
@@ -49,6 +65,17 @@ class PersonaStore {
   }
 
   Future<void> addOrUpdate(AIPersona persona) async {
+    var synced = false;
+    final updated = await _api.updatePersona(persona);
+    if (updated) {
+      synced = true;
+    } else {
+      final created = await _api.createPersona(persona);
+      if (created != null) {
+        synced = true;
+      }
+    }
+
     final list = await loadCustom();
     final idx = list.indexWhere((p) => p.id == persona.id);
     if (idx >= 0) {
@@ -56,12 +83,21 @@ class PersonaStore {
     } else {
       list.add(persona);
     }
-    await saveCustom(list);
+    if (!synced) {
+      await saveCustom(list);
+      return;
+    }
+    await saveCustom(list.where((p) => !p.isDefault).toList());
   }
 
   Future<void> deleteById(String id) async {
+    final remoteDeleted = await _api.deletePersona(id);
     final list = await loadCustom();
     list.removeWhere((p) => p.id == id);
-    await saveCustom(list);
+    if (!remoteDeleted) {
+      await saveCustom(list);
+      return;
+    }
+    await saveCustom(list.where((p) => !p.isDefault).toList());
   }
 }
