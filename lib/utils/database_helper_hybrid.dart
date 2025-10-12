@@ -14,6 +14,33 @@ class DatabaseHelperHybrid {
   
   // 是否使用API模式
   bool _useApi = true;
+  bool get isUsingApi => _useApi;
+
+  Future<List<Alarm>> getLocalAlarms() async {
+    return _localDb.getAllAlarms();
+  }
+
+  Future<List<Alarm>> fetchRemoteAlarms() async {
+    if (!_useApi) return const [];
+    try {
+      final alarms = await _apiService.getAllAlarms();
+      for (final alarm in alarms) {
+        try {
+          await _localDb.updateAlarm(alarm);
+        } catch (e) {
+          try {
+            await _localDb.createAlarm(alarm);
+          } catch (createError) {
+            print('同步闹钟到本地失败: $createError');
+          }
+        }
+      }
+      return alarms;
+    } catch (e) {
+      print('API获取闹钟列表失败: $e');
+      return const [];
+    }
+  }
 
   void _fireAndForget(Future<void> Function() task, String debugTag) {
     unawaited(
@@ -76,29 +103,14 @@ class DatabaseHelperHybrid {
 
   /// 获取所有闹钟
   Future<List<Alarm>> getAllAlarms() async {
-    if (_useApi) {
-      try {
-        final alarms = await _apiService.getAllAlarms();
-        // 同步到本地数据库
-        for (final alarm in alarms) {
-          try {
-            await _localDb.updateAlarm(alarm);
-          } catch (e) {
-            // 如果更新失败，尝试创建
-            try {
-              await _localDb.createAlarm(alarm);
-            } catch (createError) {
-              print('同步闹钟到本地失败: $createError');
-            }
-          }
-        }
-        return alarms;
-      } catch (e) {
-        print('API获取闹钟列表失败，回退到本地: $e');
-      }
+    final local = await getLocalAlarms();
+    if (!_useApi) return local;
+
+    final remote = await fetchRemoteAlarms();
+    if (remote.isNotEmpty) {
+      return remote;
     }
-    // 回退到本地数据库
-    return await _localDb.getAllAlarms();
+    return local;
   }
 
   /// 更新闹钟

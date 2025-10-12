@@ -93,20 +93,24 @@ class AICallManager {
 
       // 启动监听
       final modeStr = _modeToProtocolMode(listeningMode);
-      // 如果 realtime 模式，指示服务端保持监听（keep_listening）
       if (listeningMode == ListeningMode.realtime) {
         XiaozhiService.instance.setKeepListening(true);
-      } else {
-        XiaozhiService.instance.setKeepListening(false);
-      }
-      await XiaozhiService.instance.listenStart(mode: modeStr);
-      _addDebugLog('监听模式启动: $modeStr');
+        await XiaozhiService.instance.listenStart(mode: modeStr);
+        _addDebugLog('监听模式启动: $modeStr');
 
-      // 根据模式处理麦克风
-      if (listeningMode == ListeningMode.realtime) {
         final micStarted = await XiaozhiService.instance.startMic();
         _isMicActive = micStarted;
         _addDebugLog('实时模式麦克风: ${micStarted ? "启动成功" : "启动失败"}');
+      } else if (listeningMode == ListeningMode.autoStop) {
+        XiaozhiService.instance.setKeepListening(false);
+        await XiaozhiService.instance.listenStart(mode: modeStr);
+        _addDebugLog('监听模式启动: $modeStr');
+        _isMicActive = false;
+      } else {
+        // 手动模式：等待用户按键再启动监听
+        XiaozhiService.instance.setKeepListening(false);
+        _isMicActive = false;
+        _addDebugLog('手动模式已准备，等待用户触发录音');
       }
 
       // 更新为连接状态
@@ -354,13 +358,14 @@ class AICallManager {
       }
     }
 
-    _addDebugLog('开始语音输入 (模式: ${_currentSession.isRealtimeMode ? "实时" : "回合"})');
 
     // 立即更新UI状态，提供即时视觉反馈
     _updateSession(
       _currentSession.copyWith(
-        state: _currentSession.isRealtimeMode ? AICallState.listening : AICallState.manual,
-        isTalking: true,
+        state: _currentSession.isRealtimeMode
+            ? AICallState.listening
+            : AICallState.manual,
+        isTalking: _currentSession.isRealtimeMode,
         isRecording: true,
       ),
     );
@@ -417,7 +422,7 @@ class AICallManager {
       
       // 根据模式处理keepListening
       if (_currentSession.isRealtimeMode) {
-        // 实时模式：保持监听
+        // 实时模式：保持监听，不关闭麦克风
         XiaozhiService.instance.setKeepListening(true);
       } else {
         // 回合模式：停止监听
@@ -431,7 +436,7 @@ class AICallManager {
           state: _currentSession.isRealtimeMode
               ? AICallState.listening
               : AICallState.manual,
-          isTalking: false,
+          isTalking: _currentSession.isRealtimeMode,
           isRecording: false,
         ),
       );
