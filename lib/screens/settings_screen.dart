@@ -68,11 +68,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final xc = await XiaozhiService.instance.getClientId();
     final xsn = await XiaozhiService.instance.getSerialNumber();
     final keepAliveEnabled = prefs.getBool('keep_alive_enabled') ?? false;
+    final personaId = prefs.getString('default_persona_id') ?? 'gentle';
+    final fallbackPersonaName = AIPersona.getById(personaId).name;
     setState(() {
       _keepAliveEnabled = keepAliveEnabled;
       _vibrationEnabled = prefs.getBool('vibration_enabled') ?? true;
       _vibrationIntensity = prefs.getInt('vibration_intensity') ?? 1;
-      final personaId = prefs.getString('default_persona_id') ?? 'gentle';
       _weatherApiKey = key ?? '';
       _weatherApiHost = host ?? '';
       _weatherLocation = prefs.getString('weather_location') ?? '101010100';
@@ -87,6 +88,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _panicNotificationCount = prefs.getInt('panic_notification_count') ?? 200;
       _panicNotificationInterval =
           prefs.getInt('panic_notification_interval') ?? 3;
+      _defaultPersonaName = fallbackPersonaName;
     });
 
     try {
@@ -95,15 +97,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
         setState(() {
           _defaultPersonaName = persona.name;
         });
-      } else if (mounted) {
-        setState(() {
-          _defaultPersonaName = AIPersona.getById(personaId).name;
-        });
       }
     } catch (_) {
       if (mounted) {
         setState(() {
-          _defaultPersonaName = AIPersona.getById(personaId).name;
+          _defaultPersonaName = fallbackPersonaName;
         });
       }
     }

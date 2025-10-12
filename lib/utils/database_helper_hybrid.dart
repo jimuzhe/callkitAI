@@ -14,6 +14,8 @@ class DatabaseHelperHybrid {
   
   // 是否使用API模式
   bool _useApi = true;
+  int _consecutiveApiFailures = 0;
+  static const int _failureThreshold = 3;
   bool get isUsingApi => _useApi;
 
   Future<List<Alarm>> getLocalAlarms() async {
@@ -35,9 +37,10 @@ class DatabaseHelperHybrid {
           }
         }
       }
+      _resetFailureCounter();
       return alarms;
     } catch (e) {
-      print('API获取闹钟列表失败: $e');
+      _handleApiFailure('getAllAlarms', e);
       return const [];
     }
   }
@@ -58,6 +61,9 @@ class DatabaseHelperHybrid {
   /// 设置是否使用API
   void setUseApi(bool use) {
     _useApi = use;
+    if (!use) {
+      print('远程服务器不可用，使用本地数据库');
+    }
   }
 
   /// 获取单个闹钟
@@ -92,8 +98,10 @@ class DatabaseHelperHybrid {
         final result = await _apiService.createAlarm(alarm);
         if (result != null) {
           print('[createAlarm] 闹钟已同步到远程服务器');
+          _resetFailureCounter();
         } else {
           print('[createAlarm] 远程同步失败，仅保存在本地');
+          _handleApiFailure('createAlarm', 'empty result');
         }
       }, 'createAlarm');
     }
@@ -123,8 +131,10 @@ class DatabaseHelperHybrid {
         final success = await _apiService.updateAlarm(alarm);
         if (success) {
           print('[updateAlarm] 闹钟已同步到远程服务器');
+          _resetFailureCounter();
         } else {
           print('[updateAlarm] 远程同步失败，仅更新本地');
+          _handleApiFailure('updateAlarm', 'result=false');
         }
       }, 'updateAlarm');
     }
@@ -142,8 +152,10 @@ class DatabaseHelperHybrid {
         final success = await _apiService.deleteAlarm(id);
         if (success) {
           print('[deleteAlarm] 闹钟已从远程服务器删除');
+          _resetFailureCounter();
         } else {
           print('[deleteAlarm] 远程删除失败，仅删除本地');
+          _handleApiFailure('deleteAlarm', 'result=false');
         }
       }, 'deleteAlarm');
     }
@@ -161,7 +173,10 @@ class DatabaseHelperHybrid {
       
       for (final alarm in localAlarms) {
         try {
-          await _apiService.updateAlarm(alarm);
+          final success = await _apiService.updateAlarm(alarm);
+          if (!success) {
+            throw Exception('update failed');
+          }
         } catch (e) {
           // 如果更新失败，尝试创建
           try {
@@ -175,6 +190,22 @@ class DatabaseHelperHybrid {
       print('同步完成');
     } catch (e) {
       print('同步失败: $e');
+      _handleApiFailure('syncFromRemote', e);
+    }
+  }
+
+  void _handleApiFailure(String tag, Object error) {
+    _consecutiveApiFailures++;
+    print('[$tag] 远程操作失败 (连续失败 $_consecutiveApiFailures 次): $error');
+    if (_consecutiveApiFailures >= _failureThreshold) {
+      _useApi = false;
+      print('远程服务器不可用，使用本地数据库');
+    }
+  }
+
+  void _resetFailureCounter() {
+    if (_consecutiveApiFailures > 0) {
+      _consecutiveApiFailures = 0;
     }
   }
 

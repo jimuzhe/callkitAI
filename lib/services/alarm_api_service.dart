@@ -14,7 +14,7 @@ class AlarmApiService {
   Future<String> get _baseUrl async => await ApiConfig.instance.getBaseUrl();
   Future<String> get _userId async => await ApiConfig.instance.getUserId();
   final http.Client _client = http.Client();
-  Duration requestTimeout = const Duration(seconds: 4);
+  Duration requestTimeout = const Duration(seconds: 10);
 
   Future<T?> _guardRequest<T>(Future<T> future) async {
     try {
