@@ -23,11 +23,11 @@ class AIService {
       // 检查是否在CallKit会话中
       _isCallKitSession = CallKitService.instance.isInCallKitSession;
       _callKitCallId = CallKitService.instance.currentCallId;
-      
+
       if (_isCallKitSession) {
         debugPrint('🤖 在CallKit会话中启动AI对话 (CallID: $_callKitCallId)');
       }
-      
+
       // Always use realtime mode for alarm-initiated calls
       await AICallManager.instance.startCall(AICallMode.realtime);
 
@@ -47,10 +47,10 @@ class AIService {
     try {
       await AICallManager.instance.endCall();
       debugPrint('🛑 AI对话已停止');
-      
+
       // 如果在CallKit会话中，也结束CallKit通话（如果还没结束的话）
       if (_isCallKitSession && _callKitCallId != null) {
-        if (CallKitService.instance.isInCallKitSession && 
+        if (CallKitService.instance.isInCallKitSession &&
             CallKitService.instance.currentCallId == _callKitCallId) {
           debugPrint('🔚 AI对话结束，同步结束CallKit通话');
           await CallKitService.instance.endCall(_callKitCallId!);
@@ -90,26 +90,36 @@ class AIService {
     });
 
     // Fallback timeout to avoid hanging forever
-    unawaited(Future.delayed(const Duration(seconds: 8)).then((_) async {
-      if (completer.isCompleted) return;
-      try {
-        // Try anyway even if we didn't observe the event
-        if (XiaozhiService.instance.isConnected) {
-          await _sendDirectiveText(alarm);
-        }
-      } catch (_) {}
-      if (!completer.isCompleted) completer.complete();
-    }));
+    unawaited(
+      Future.delayed(const Duration(seconds: 8)).then((_) async {
+        if (completer.isCompleted) return;
+        try {
+          // Try anyway even if we didn't observe the event
+          if (XiaozhiService.instance.isConnected) {
+            await _sendDirectiveText(alarm);
+          }
+        } catch (_) {}
+        if (!completer.isCompleted) completer.complete();
+      }),
+    );
 
     return completer.future;
   }
 
   Future<void> _sendDirectiveText(Alarm alarm) async {
+    // 构建闹钟上下文信息
+    final alarmContext = _buildAlarmContext(alarm);
+    debugPrint('📋 闹钟上下文: $alarmContext');
+
     // 1) Try persona-based directive (alarm.aiPersonaId)
     String? directive;
+    String? personaName;
     try {
-      final persona = await PersonaStore.instance.getByIdMerged(alarm.aiPersonaId);
+      final persona = await PersonaStore.instance.getByIdMerged(
+        alarm.aiPersonaId,
+      );
       if (persona != null) {
+        personaName = persona.name;
         final prompt = _applyDirectivePlaceholders(alarm, persona.systemPrompt);
         final opening = persona.openingLine.trim().isNotEmpty
             ? '\n开场白建议：${_applyDirectivePlaceholders(alarm, persona.openingLine)}'
@@ -123,12 +133,47 @@ class AIService {
 
     // 2) Fallback to default directive if no persona found
     if (directive == null) {
-      directive = _applyDirectivePlaceholders(alarm, _buildDefaultDirective(alarm));
+      directive = _applyDirectivePlaceholders(
+        alarm,
+        _buildDefaultDirective(alarm),
+      );
     }
 
+    // 3) 将闹钟上下文信息添加到指示词前面
+    final fullDirective = '$alarmContext\n\n$directive';
+
     // Use text channel to inject instruction into the conversation
-    await XiaozhiService.instance.sendText(directive);
-    debugPrint('📝 已发送闹钟指示词: $directive');
+    await XiaozhiService.instance.sendText(fullDirective);
+    debugPrint('📝 已发送闹钟指示词 (包含上下文)');
+    debugPrint('   闹钟: ${alarm.name}');
+    debugPrint('   人设: ${personaName ?? "默认"}');
+    debugPrint('   时间: ${alarm.getFormattedTime()}');
+  }
+
+  /// 构建闹钟上下文信息，让小智了解闹钟的目的
+  String _buildAlarmContext(Alarm alarm) {
+    final time = alarm.getFormattedTime();
+    final repeatDesc = alarm.getRepeatDescription();
+    final now = DateTime.now();
+    final date =
+        '${now.year}年${now.month}月${now.day}日 ${_getWeekdayName(now.weekday)}';
+
+    // 构建上下文信息
+    final context = StringBuffer();
+    context.writeln('【闹钟上下文信息】');
+    context.writeln('当前时间：$date $time');
+    context.writeln('闹钟名称：${alarm.name}');
+    context.writeln('闹钟类型：$repeatDesc');
+    context.writeln('---');
+    context.writeln('请根据以上信息，以合适的方式与用户对话，帮助用户完成闹钟设定的任务。');
+
+    return context.toString();
+  }
+
+  /// 获取星期名称
+  String _getWeekdayName(int weekday) {
+    const weekdays = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+    return weekdays[weekday - 1];
   }
 
   String _buildDefaultDirective(Alarm alarm) {
@@ -142,7 +187,8 @@ class AIService {
     final hh = alarm.hour.toString().padLeft(2, '0');
     final mm = alarm.minute.toString().padLeft(2, '0');
     final time = '$hh:$mm';
-    final date = '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+    final date =
+        '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
     return text
         .replaceAll('{time}', time)
         .replaceAll('{alarm}', alarm.name)

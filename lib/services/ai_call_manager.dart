@@ -28,11 +28,11 @@ class AICallManager {
   bool _isAudioInitialized = false;
   bool _isMicActive = false;
   bool _aecEnabled = true; // 默认启用回声消除
-  
+
   // 异步锁，防止同时调用 startCall/endCall
   bool _isProcessingCall = false;
   bool _isProcessingVoice = false;
-  
+
   // 连接状态管理
   int _connectionRetryCount = 0;
   static const int _maxRetryCount = 3;
@@ -55,7 +55,7 @@ class AICallManager {
       return;
     }
     _isProcessingCall = true;
-    
+
     try {
       final listeningMode = _callModeToListeningMode(mode);
       _addDebugLog('开始通话，模式: ${_modeToString(listeningMode)}');
@@ -79,7 +79,7 @@ class AICallManager {
 
       // 连接小智服务
       final realtime = listeningMode == ListeningMode.realtime;
-      
+
       // 重要修复：两种模式都需要语音聊天模式来支持AI音频输出
       try {
         await AudioService.instance.enterVoiceChatMode();
@@ -147,7 +147,7 @@ class AICallManager {
       return;
     }
     _isProcessingCall = true;
-    
+
     _addDebugLog('结束通话');
 
     // 停止计时器
@@ -189,7 +189,7 @@ class AICallManager {
     } finally {
       // 重置状态
       _updateSession(AICallSession.initial());
-      
+
       // 延迟释放锁，确保所有清理完成
       Future.delayed(const Duration(milliseconds: 500), () {
         _isProcessingCall = false;
@@ -277,7 +277,7 @@ class AICallManager {
 
     _isMicActive = false;
     _connectionRetryCount = 0; // 重置重试计数
-    
+
     // 更新到新模式，但不立即连接
     _updateSession(
       AICallSession(
@@ -293,7 +293,7 @@ class AICallManager {
         errorMessage: null,
       ),
     );
-    
+
     // 不再自动连接，等待用户输入时再连接
     _addDebugLog('模式切换完成，等待用户输入以建立连接');
   }
@@ -302,8 +302,10 @@ class AICallManager {
     final trimmed = text.trim();
     if (trimmed.isEmpty) return;
 
-    _addDebugLog('准备发送文本消息: ${trimmed.substring(0, trimmed.length > 20 ? 20 : trimmed.length)}...');
-    
+    _addDebugLog(
+      '准备发送文本消息: ${trimmed.substring(0, trimmed.length > 20 ? 20 : trimmed.length)}...',
+    );
+
     // 按需建立连接
     if (!_currentSession.isConnected) {
       _addDebugLog('检测到未连接，开始按需建立连接');
@@ -338,9 +340,11 @@ class AICallManager {
       return;
     }
     _isProcessingVoice = true;
-    
-    _addDebugLog('开始语音输入流程 (模式: ${_currentSession.isRealtimeMode ? "实时" : "回合"})');
-    
+
+    _addDebugLog(
+      '开始语音输入流程 (模式: ${_currentSession.isRealtimeMode ? "实时" : "回合"})',
+    );
+
     // 按需建立连接
     if (!_currentSession.isConnected) {
       _addDebugLog('检测到未连接，开始按需建立语音连接');
@@ -352,7 +356,6 @@ class AICallManager {
         return;
       }
     }
-
 
     // 立即更新UI状态，提供即时视觉反馈
     _updateSession(
@@ -372,17 +375,17 @@ class AICallManager {
       } else {
         XiaozhiService.instance.setKeepListening(false); // 回合模式不保持
       }
-      
+
       // 根据模式启动监听
       final mode = _currentSession.isRealtimeMode ? 'realtime' : 'manual';
       await XiaozhiService.instance.listenStart(mode: mode);
-      
+
       final micStarted = await XiaozhiService.instance.startMic();
       _isMicActive = micStarted;
 
       HapticsService.instance.impact();
       _addDebugLog('语音输入启动${micStarted ? "成功" : "失败"}');
-      
+
       // 如果启动失败，立即更新状态
       if (!micStarted) {
         _updateSession(
@@ -413,11 +416,13 @@ class AICallManager {
       _isProcessingVoice = false; // 重置锁
       return;
     }
-    
+
     // 快速释放锁，允许下一次语音输入
     _isProcessingVoice = false;
 
-    _addDebugLog('停止语音输入 (模式: ${_currentSession.isRealtimeMode ? "实时" : "回合"})');
+    _addDebugLog(
+      '停止语音输入 (模式: ${_currentSession.isRealtimeMode ? "实时" : "回合"})',
+    );
 
     try {
       // 停止麦克风
@@ -425,7 +430,7 @@ class AICallManager {
         await XiaozhiService.instance.stopMic();
         _isMicActive = false;
       }
-      
+
       // 根据模式处理keepListening
       if (_currentSession.isRealtimeMode) {
         // 实时模式：保持监听，不关闭麦克风
@@ -548,7 +553,8 @@ class AICallManager {
       _addDebugLog('已有连接正在建立中，等待...');
       // 等待当前连接完成
       var waited = 0;
-      while (_isConnecting && waited < 50) { // 最多等待5秒
+      while (_isConnecting && waited < 50) {
+        // 最多等待5秒
         await Future.delayed(const Duration(milliseconds: 100));
         waited++;
       }
@@ -562,7 +568,7 @@ class AICallManager {
 
     _isConnecting = true;
     _connectionTimeoutTimer?.cancel();
-    
+
     try {
       // 设置连接超时
       _connectionTimeoutTimer = Timer(const Duration(seconds: 15), () {
@@ -576,20 +582,23 @@ class AICallManager {
           ? AICallMode.realtime
           : AICallMode.turn;
 
-      _addDebugLog('开始按需连接 - 模式: ${_modeToString(mode)}, 重试次数: $_connectionRetryCount');
-      
+      _addDebugLog(
+        '开始按需连接 - 模式: ${_modeToString(mode)}, 重试次数: $_connectionRetryCount',
+      );
+
       await startCall(targetMode);
-      
+
       // 检查连接结果
-      final success = _currentSession.isConnected && _currentSession.mode == mode;
-      
+      final success =
+          _currentSession.isConnected && _currentSession.mode == mode;
+
       if (success) {
         _connectionRetryCount = 0; // 重置重试计数
         _addDebugLog('✅ 按需连接成功');
       } else {
         _connectionRetryCount++;
         _addDebugLog('❌ 按需连接失败 (第 $_connectionRetryCount 次)');
-        
+
         // 如果未超过最大重试次数，尝试重连
         if (_connectionRetryCount < _maxRetryCount) {
           _addDebugLog('将在 2 秒后重试连接...');
@@ -599,7 +608,7 @@ class AICallManager {
           }
         }
       }
-      
+
       return success;
     } catch (e) {
       _addDebugLog('❌ 按需连接异常: $e');

@@ -22,7 +22,7 @@ class CallKitService {
   final Map<String, Timer> _pendingCallTimers = {};
   final Map<String, Timer> _prewarmTimers = {};
   static const Duration _prewarmWindow = Duration(seconds: 25);
-  
+
   // 当前活跃的通话ID（用于在系统通话界面中进行AI对话）
   String? _currentCallId;
   bool _isInCallKitSession = false;
@@ -177,18 +177,18 @@ class CallKitService {
     _pendingCallTimers[alarm.id] = Timer(duration, () async {
       // 巨魔商店增强：设置最大音量
       await VolumeService.instance.setMaxVolume();
-      
+
       // 启动呼叫
       await startCall(uuid: alarm.id, callerName: alarm.name, alarm: alarm);
-      
+
       // 启动紧急通知（Critical Alert + 最大音量）
       unawaited(
         NotificationService.instance.startPanicNotifications(alarm: alarm),
       );
-      
+
       // 巨魔商店增强：强烈震动提醒
       unawaited(HapticsService.instance.alertVibration());
-      
+
       _pendingCallTimers.remove(alarm.id);
       _prewarmTimers.remove(alarm.id);
     });
@@ -203,15 +203,15 @@ class CallKitService {
 
   Future<void> _handleCallAccepted(String callId) async {
     debugPrint('📞 CallKit通话已接听: $callId');
-    
+
     // 标记进入CallKit通话会话
     _currentCallId = callId;
     _isInCallKitSession = true;
-    
+
     // 接通后停止后台保活和紧急通知
     await AudioService.instance.stopBackgroundKeepAlive();
     await NotificationService.instance.stopPanicNotifications();
-    
+
     // 不恢复音量，保持最大音量以便听清AI语音
     // await VolumeService.instance.restoreVolume();
 
@@ -225,7 +225,7 @@ class CallKitService {
     }
 
     debugPrint('🤖 开始在CallKit通话界面中与小智对话');
-    
+
     // 启动AI对话（将在CallKit通话会话中运行）
     try {
       await _startAICallInCallKitSession(alarm, callId);
@@ -234,11 +234,11 @@ class CallKitService {
       await _endCallKitSession(callId);
     }
   }
-  
+
   /// 在CallKit通话会话中启动AI对话
   Future<void> _startAICallInCallKitSession(Alarm alarm, String callId) async {
     debugPrint('🎙️ 配置CallKit音频会话以支持AI对话');
-    
+
     // 配置音频会话为CallKit兼容模式
     try {
       await AudioService.instance.enterVoiceChatMode();
@@ -246,15 +246,15 @@ class CallKitService {
     } catch (e) {
       debugPrint('⚠️ 音频会话配置失败: $e，尝试继续');
     }
-    
+
     // 启动AI对话服务
     await AIService.instance.startConversation(alarm: alarm);
     debugPrint('✅ AI对话已在CallKit通话界面中启动');
-    
+
     // 监听AI对话结束事件，自动结束CallKit通话
     _monitorAICallAndEndCallKit(callId);
   }
-  
+
   /// 监听AI对话状态，在对话结束时自动结束CallKit通话
   void _monitorAICallAndEndCallKit(String callId) {
     // 可以通过监听AICallManager的状态来判断对话是否结束
@@ -264,7 +264,7 @@ class CallKitService {
         timer.cancel();
         return;
       }
-      
+
       // 检查AI对话是否仍在进行
       final session = AICallManager.instance.currentSession;
       if (!session.isConnected && session.state == AICallState.idle) {
@@ -274,20 +274,20 @@ class CallKitService {
       }
     });
   }
-  
+
   /// 结束CallKit通话会话
   Future<void> _endCallKitSession(String callId) async {
     if (!_isInCallKitSession || _currentCallId != callId) {
       return;
     }
-    
+
     debugPrint('🔚 结束CallKit通话会话: $callId');
     _isInCallKitSession = false;
     _currentCallId = null;
-    
+
     // 结束CallKit界面的通话
     await FlutterCallkitIncoming.endCall(callId);
-    
+
     // 恢复音量
     await VolumeService.instance.restoreVolume();
   }
@@ -296,7 +296,7 @@ class CallKitService {
     debugPrint('📵 CallKit通话被拒绝: $callId');
     _isInCallKitSession = false;
     _currentCallId = null;
-    
+
     await AudioService.instance.stopBackgroundKeepAlive();
     await NotificationService.instance.stopPanicNotifications();
     // 恢复音量
@@ -308,7 +308,7 @@ class CallKitService {
     debugPrint('📴 CallKit通话已结束: $callId');
     _isInCallKitSession = false;
     _currentCallId = null;
-    
+
     await AudioService.instance.stopBackgroundKeepAlive();
     await NotificationService.instance.stopPanicNotifications();
     // 恢复音量
@@ -320,7 +320,7 @@ class CallKitService {
     debugPrint('⏱️ CallKit通话超时: $callId');
     _isInCallKitSession = false;
     _currentCallId = null;
-    
+
     await AudioService.instance.stopBackgroundKeepAlive();
     await NotificationService.instance.stopPanicNotifications();
     // 恢复音量
@@ -332,7 +332,7 @@ class CallKitService {
     debugPrint('🔚 手动结束CallKit通话: $callId');
     _isInCallKitSession = false;
     _currentCallId = null;
-    
+
     await FlutterCallkitIncoming.endCall(callId);
     await AudioService.instance.stopBackgroundKeepAlive();
     await NotificationService.instance.stopPanicNotifications();
@@ -370,17 +370,17 @@ class CallKitService {
     debugPrint('🔚 结束所有CallKit通话');
     _isInCallKitSession = false;
     _currentCallId = null;
-    
+
     await FlutterCallkitIncoming.endAllCalls();
     await NotificationService.instance.stopPanicNotifications();
     // 恢复音量
     await VolumeService.instance.restoreVolume();
     await _cleanupCall(null);
   }
-  
+
   /// 获取当前是否在CallKit通话会话中
   bool get isInCallKitSession => _isInCallKitSession;
-  
+
   /// 获取当前CallKit通话ID
   String? get currentCallId => _currentCallId;
 
@@ -389,5 +389,4 @@ class CallKitService {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getString('voip_push_token');
   }
-
 }

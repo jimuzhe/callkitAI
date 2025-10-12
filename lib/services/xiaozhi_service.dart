@@ -541,7 +541,7 @@ class XiaozhiService {
   // 建立 WebSocket 连接并发送 hello
   Future<void> connect({bool realtime = false}) async {
     debugPrint('🔌 [连接] 开始连接流程 (${realtime ? "实时" : "回合"}模式)');
-    
+
     // 若已有连接，先断开
     if (_ws != null) {
       debugPrint('🔌 [连接] 检测到已有连接，先断开...');
@@ -589,7 +589,7 @@ class XiaozhiService {
     // 设置内部 realtime 标志，供后续逻辑（例如 TTS 结束后重启麦克风）使用
     _isInRealtimeMode = realtime;
     _resetPendingAiOutput();
-    
+
     // 若需要 realtime 模式，改用服务端约定的绝对路径 /realtime_chat 并确保必要参数
     Map<String, String> baseQuery = Map<String, String>.from(
       uri.queryParameters,
@@ -612,13 +612,13 @@ class XiaozhiService {
     if (!realtime) {
       uri = uri.replace(queryParameters: baseQuery);
     }
-    
+
     debugPrint('🔌 [URI] 最终连接地址: $uri');
-    
+
     // 启用自动重连
     _shouldReconnect = true;
     _reconnectAttempts = 0;
-    
+
     try {
       // 通过平台适配的连接器设置 Header（IO）或 Query（Web）
       debugPrint('🔌 [WebSocket] 正在建立WebSocket连接...');
@@ -631,7 +631,7 @@ class XiaozhiService {
       );
       _ws = _protocol!.channel;
       debugPrint('✅ [WebSocket] WebSocket连接已建立');
-      
+
       // 标记为已连接（WebSocket 无 session_id）
       _connectionController.add(true);
     } catch (e, stackTrace) {
@@ -677,11 +677,11 @@ class XiaozhiService {
               if (!_keepListening) {
                 setKeepListening(true);
               }
-              
+
               // 关键修复：延迟启动麦克风，确保服务器先处理 listen.start 消息
               debugPrint('⏱️ [实时模式] 等待500ms让服务器处理 listen.start...');
               await Future.delayed(const Duration(milliseconds: 500));
-              
+
               final micStarted = await startMic();
               debugPrint('🎤 [麦克风] hello 后麦克风启动: ${micStarted ? "成功" : "失败"}');
             } catch (e) {
@@ -813,7 +813,7 @@ class XiaozhiService {
 
     // 启动心跳保活机制
     _startHeartbeat();
-    
+
     // 设置重连标志
     _shouldReconnect = realtime; // 实时模式启用自动重连
     _reconnectAttempts = 0;
@@ -934,14 +934,14 @@ class XiaozhiService {
       }
 
       debugPrint('🔊 音频播放已结束，开始恢复麦克风');
-      
+
       try {
         // 确保监听状态正确
         debugPrint('📡 发送 listenStart(realtime)');
         await listenStart(mode: 'realtime');
 
         debugPrint('🎯 当前设备状态: ${_deviceState.name}');
-        
+
         if (_deviceState != DeviceState.listening) {
           // 重启麦克风
           debugPrint('🎤 开始重启麦克风...');
@@ -983,10 +983,7 @@ class XiaozhiService {
     try {
       final info = <String, dynamic>{
         'mode': _isInRealtimeMode ? 'realtime' : 'manual',
-        'client': {
-          'platform': 'flutter',
-          'version': '2.0.0',
-        },
+        'client': {'platform': 'flutter', 'version': '2.0.0'},
       };
       return info;
     } catch (e) {
@@ -1126,7 +1123,7 @@ class XiaozhiService {
         normalizedState == 'stop' ||
         normalizedState == 'complete') {
       debugPrint('🎭 TTS结束，状态: $normalizedState');
-      
+
       // 发送完整文本
       if (_currentTtsText.isNotEmpty) {
         _emitAiMessage(_currentTtsText, isComplete: true);
@@ -1146,7 +1143,9 @@ class XiaozhiService {
       debugPrint('🔄 设备状态: $oldState -> ${_deviceState.name}');
 
       // 实时模式：恢复麦克风
-      debugPrint('🎤 尝试恢复麦克风 (_isInRealtimeMode: $_isInRealtimeMode, _keepListening: $_keepListening)');
+      debugPrint(
+        '🎤 尝试恢复麦克风 (_isInRealtimeMode: $_isInRealtimeMode, _keepListening: $_keepListening)',
+      );
       _scheduleRealtimeMicResume();
     }
   }
@@ -1235,14 +1234,14 @@ class XiaozhiService {
   /// 启动心跳保活机制
   void _startHeartbeat() {
     _stopHeartbeat();
-    
+
     // 每20秒发送一次ping（更频繁的心跳）
     _pingTimer = Timer.periodic(const Duration(seconds: 20), (timer) {
       if (_protocol == null || _ws == null) {
         timer.cancel();
         return;
       }
-      
+
       try {
         // 发送ping消息
         final ping = {
@@ -1251,7 +1250,7 @@ class XiaozhiService {
         };
         _protocol!.sendText(jsonEncode(ping));
         debugPrint('💓 发送心跳 ping');
-        
+
         // 检查是否超时45秒没有收到任何消息（缩短超时时间）
         final now = DateTime.now();
         if (_lastMessageTime != null) {
@@ -1270,16 +1269,16 @@ class XiaozhiService {
         timer.cancel();
       }
     });
-    
+
     debugPrint('❤️ 心跳保活已启动 (20秒间隔)');
   }
-  
+
   /// 停止心跳
   void _stopHeartbeat() {
     _pingTimer?.cancel();
     _pingTimer = null;
   }
-  
+
   /// 调度重连
   void _scheduleReconnect() {
     // 防止重复调度
@@ -1287,40 +1286,40 @@ class XiaozhiService {
       debugPrint('🔄 重连定时器已存在，跳过重复调度');
       return;
     }
-    
+
     // 如果不应该重连，直接返回
     if (!_shouldReconnect) {
       debugPrint('🚫 重连已禁用，跳过重连');
       return;
     }
-    
+
     _reconnectAttempts++;
-    
+
     // 优化的指数退避：1秒, 3秒, 5秒, 10秒, 15秒, 最多20秒
     final delays = [1, 3, 5, 10, 15, 20];
     final delayIndex = min(_reconnectAttempts - 1, delays.length - 1);
     final delay = Duration(seconds: delays[delayIndex]);
-    
+
     debugPrint('🔄 将在 ${delay.inSeconds} 秒后尝试第 $_reconnectAttempts 次重连...');
-    
+
     _reconnectTimer = Timer(delay, () async {
       if (!_shouldReconnect) {
         debugPrint('🚫 重连已取消');
         return;
       }
-      
+
       debugPrint('🔄 开始第 $_reconnectAttempts 次重连尝试...');
-      
+
       try {
         // 先清理旧连接
         await _cleanupConnection();
-        
+
         // 短暂延迟确保清理完成
         await Future.delayed(const Duration(milliseconds: 500));
-        
+
         // 重新连接
         await connect(realtime: _isInRealtimeMode);
-        
+
         // 验证连接是否真正建立
         await Future.delayed(const Duration(milliseconds: 1000));
         if (_ws != null && _sessionId != null) {
@@ -1332,7 +1331,7 @@ class XiaozhiService {
         }
       } catch (e) {
         debugPrint('❌ 第 $_reconnectAttempts 次重连失败: $e');
-        
+
         // 如果超过6次尝试，放弃重连
         if (_reconnectAttempts >= 6) {
           debugPrint('❌ 已达到最大重连次数(6)，放弃重连');
@@ -1347,19 +1346,19 @@ class XiaozhiService {
       }
     });
   }
-  
+
   /// 清理连接资源
   Future<void> _cleanupConnection() async {
     try {
       await _wsSub?.cancel();
       _wsSub = null;
     } catch (_) {}
-    
+
     try {
       await _ws?.sink.close();
       _ws = null;
     } catch (_) {}
-    
+
     _protocol = null;
     _sessionId = null;
     debugPrint('🧹 连接资源清理完成');
@@ -1369,12 +1368,12 @@ class XiaozhiService {
     _isInRealtimeMode = false;
     _shouldReconnect = false; // 禁用重连
     _reconnectAttempts = 0;
-    
+
     // 停止心跳和重连定时器
     _stopHeartbeat();
     _reconnectTimer?.cancel();
     _reconnectTimer = null;
-    
+
     _finalizePendingTtsSentence();
     _resetPendingAiOutput();
     _helloTimeoutTimer?.cancel();
@@ -1445,44 +1444,40 @@ class XiaozhiService {
     // 检查连接状态，如果未连接则自动建立连接
     if (_ws == null || _protocol == null) {
       debugPrint('🔄 sendText: 检测到未连接，尝试建立连接...');
-      
+
       try {
         // 先本地回显用户消息
         _messageController.add(
           XiaozhiMessage(fromUser: true, text: trimmedText, ts: DateTime.now()),
         );
-        
+
         // 建立连接（回合模式）
         await connect(realtime: false);
-        
+
         // 等待连接建立（最多3秒）
         var waited = 0;
         while ((_ws == null || _sessionId == null) && waited < 30) {
           await Future.delayed(const Duration(milliseconds: 100));
           waited++;
         }
-        
+
         if (_ws == null || _protocol == null) {
           debugPrint('❌ sendText: 连接建立失败');
           _messageController.add(
             XiaozhiMessage(
-              fromUser: false, 
-              text: '连接失败，请稍后重试', 
+              fromUser: false,
+              text: '连接失败，请稍后重试',
               ts: DateTime.now(),
             ),
           );
           return;
         }
-        
+
         debugPrint('✅ sendText: 连接建立成功，继续发送消息');
       } catch (e) {
         debugPrint('❌ sendText: 连接异常: $e');
         _messageController.add(
-          XiaozhiMessage(
-            fromUser: false, 
-            text: '连接异常: $e', 
-            ts: DateTime.now(),
-          ),
+          XiaozhiMessage(fromUser: false, text: '连接异常: $e', ts: DateTime.now()),
         );
         return;
       }
@@ -1561,8 +1556,10 @@ class XiaozhiService {
   }
 
   Future<bool> startMic() async {
-    debugPrint('🎤 startMic 被调用 (isConnected: $isConnected, _protocol: ${_protocol != null})');
-    
+    debugPrint(
+      '🎤 startMic 被调用 (isConnected: $isConnected, _protocol: ${_protocol != null})',
+    );
+
     if (!isConnected) {
       debugPrint('❌ startMic: 未连接，跳过');
       _deviceState = DeviceState.idle;
