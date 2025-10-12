@@ -1427,9 +1427,13 @@ class XiaozhiService {
         _protocol!.sendAudio(bytes);
       }
       _micChunkCount++;
-      // 限制日志频率（每100帧输出一次）
-      if (_micChunkCount % 100 == 0) {
-        debugPrint('🎤 已发送 $_micChunkCount 帧音频数据');
+      // 限制日志频率（每50帧输出一次，更频繁以便调试）
+      if (_micChunkCount % 50 == 0) {
+        debugPrint('🎤 已发送 $_micChunkCount 帧音频数据 (${bytes.length} bytes)');
+      }
+      // 第一帧也输出日志
+      if (_micChunkCount == 1) {
+        debugPrint('🎤 开始发送音频帧 (${bytes.length} bytes, deviceState: ${_deviceState.name})');
       }
     } catch (e) {
       debugPrint('🔴 发送音频帧失败: $e');
@@ -1567,6 +1571,9 @@ class XiaozhiService {
     }
 
     try {
+      // 重置音频帧计数器
+      _micChunkCount = 0;
+      
       await _micSub?.cancel();
       _micSub = null;
 
@@ -1603,6 +1610,9 @@ class XiaozhiService {
   }
 
   Future<void> _stopMicInternal() async {
+    // 在停止前先等待一下，确保最后的音频帧能发送完成
+    await Future.delayed(const Duration(milliseconds: 100));
+    
     try {
       await _micSub?.cancel();
     } catch (_) {}
@@ -1623,6 +1633,7 @@ class XiaozhiService {
     }
 
     _deviceState = DeviceState.idle;
+    debugPrint('🎤 麦克风已停止，已发送 $_micChunkCount 帧音频');
   }
 
   Future<void> listenStart({String mode = 'manual'}) async {

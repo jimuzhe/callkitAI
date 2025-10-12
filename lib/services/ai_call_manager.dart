@@ -425,16 +425,17 @@ class AICallManager {
     );
 
     try {
-      // 停止麦克风
-      if (_isMicActive) {
-        await XiaozhiService.instance.stopMic();
-        _isMicActive = false;
-      }
-
       // 根据模式处理keepListening
       if (_currentSession.isRealtimeMode) {
         // 实时模式：保持监听，不关闭麦克风
         XiaozhiService.instance.setKeepListening(true);
+        
+        // 停止麦克风
+        if (_isMicActive) {
+          await XiaozhiService.instance.stopMic();
+          _isMicActive = false;
+        }
+        
         // 更新状态为继续监听
         _updateSession(
           _currentSession.copyWith(
@@ -444,9 +445,20 @@ class AICallManager {
           ),
         );
       } else {
-        // 回合模式：停止监听，恢复手动状态
+        // 回合模式：先发送停止监听信号，再停止麦克风
+        // 这样可以确保服务器知道音频流结束，开始处理
         XiaozhiService.instance.setKeepListening(false);
         await XiaozhiService.instance.listenStop();
+        
+        // 等待一小段时间，确保最后的音频帧发送完成
+        await Future.delayed(const Duration(milliseconds: 150));
+        
+        // 停止麦克风
+        if (_isMicActive) {
+          await XiaozhiService.instance.stopMic();
+          _isMicActive = false;
+        }
+        
         // 更新状态为手动模式
         _updateSession(
           _currentSession.copyWith(
