@@ -195,8 +195,10 @@ class AlarmApiService {
   /// 健康检查
   Future<bool> checkHealth() async {
     try {
+      final baseUrl = await _baseUrl;
+      final healthUri = Uri.parse(baseUrl).resolve('/health');
       final response = await http.get(
-        Uri.parse('http://localhost:5000/health'),
+        healthUri,
         headers: {'Content-Type': 'application/json'},
       );
       return response.statusCode == 200;
