@@ -553,6 +553,22 @@ class XiaozhiService {
       debugPrint('🔌 [连接] 检测到已有连接，先断开...');
       await disconnect();
     }
+    
+    // 预热 AudioCodec，确保 Opus 编码器已初始化
+    try {
+      debugPrint('🌡️ [初始化] 预热 AudioCodec...');
+      // 使用一个小的测试帧来初始化编码器
+      final testFrame = Uint8List((_sampleRate * _frameDuration ~/ 1000) * 2);
+      await AudioCodec.instance.pcmToOpus(
+        pcmData: testFrame,
+        sampleRate: _sampleRate,
+        frameDuration: _frameDuration,
+      );
+      debugPrint('✅ [初始化] AudioCodec 预热完成');
+    } catch (e) {
+      debugPrint('⚠️ [初始化] AudioCodec 预热失败: $e');
+      // 不中断连接流程，后续使用时会自动初始化
+    }
 
     final wsUrl = await getWsUrl();
     final deviceId = await getDeviceId();
@@ -678,6 +694,12 @@ class XiaozhiService {
         if (_isInRealtimeMode) {
           Future.microtask(() async {
             try {
+              // 验证连接状态
+              if (!isConnected || _protocol == null) {
+                debugPrint('❌ [实时模式] 连接状态异常，跳过麦克风启动');
+                return;
+              }
+              
               debugPrint('🎤 [实时模式] hello 已确认，开始 listenStart(realtime)');
               await listenStart(mode: 'realtime');
               if (!_keepListening) {
@@ -688,10 +710,26 @@ class XiaozhiService {
               debugPrint('⏱️ [实时模式] 等待500ms让服务器处理 listen.start...');
               await Future.delayed(const Duration(milliseconds: 500));
 
+              // 再次验证连接状态
+              if (!isConnected || _protocol == null) {
+                debugPrint('❌ [实时模式] 延迟后连接已断开，跳过麦克风启动');
+                return;
+              }
+
               final micStarted = await startMic();
               debugPrint('🎤 [麦克风] hello 后麦克风启动: ${micStarted ? "成功" : "失败"}');
-            } catch (e) {
+              
+              if (!micStarted) {
+                debugPrint('⚠️ [实时模式] 麦克风启动失败，100ms后重试一次');
+                await Future.delayed(const Duration(milliseconds: 100));
+                if (_isInRealtimeMode && _keepListening && isConnected) {
+                  final retry = await startMic();
+                  debugPrint('🎤 [麦克风] 重试结果: ${retry ? "成功" : "失败"}');
+                }
+              }
+            } catch (e, stackTrace) {
               debugPrint('❌ [实时模式] hello 回包后启动监听失败: $e');
+              debugPrint('📍 堆栈: $stackTrace');
             }
           });
         }
@@ -753,7 +791,19 @@ class XiaozhiService {
         if (errorText is String && errorText.isNotEmpty) {
           debugPrint('❌ 服务器错误: $errorText');
           debugPrint('📦 完整错误消息: ${jsonEncode(msg)}');
-          // 不要把服务器错误当作AI消息显示
+          
+          // 如果是实时模式且错误表明未准备好，提供诊断信息
+          if (_isInRealtimeMode) {
+            if (errorText.contains('not ready') || 
+                errorText.contains('processing message')) {
+              debugPrint('⚠️ 服务器未就绪接收音频，可能需要增加启动延迟');
+              debugPrint('💡 建议: 检查 listen.start 消息是否已发送');
+            }
+            if (errorText.contains('audio') || errorText.contains('frame')) {
+              debugPrint('⚠️ 音频处理错误，检查编码器状态');
+              debugPrint('💡 当前发送帧数: $_micChunkCount');
+            }
+          }
         }
       };
 
@@ -1673,13 +1723,22 @@ class XiaozhiService {
           frameDuration: _frameDuration,
         );
         if (encoded == null || encoded.isEmpty) {
-          debugPrint('⚠️ Opus 编码失败，丢弃一帧音频');
+          // 只在前几次失败时输出警告，避免刷屏
+          if (_micChunkCount < 5) {
+            debugPrint('⚠️ Opus 编码失败，丢弃一帧音频 (帧 #$_micChunkCount)');
+            debugPrint('💡 提示: 检查 AudioCodec 初始化状态');
+          }
           return;
         }
         _sendAudioFrame(encoded);
       } catch (e, stack) {
-        debugPrint('❌ Opus 编码流程异常: $e');
-        debugPrint('📍 $stack');
+        // 只在前几次异常时输出完整堆栈
+        if (_micChunkCount < 3) {
+          debugPrint('❌ Opus 编码流程异常: $e');
+          debugPrint('📍 堆栈: $stack');
+        } else if (_micChunkCount == 3) {
+          debugPrint('❌ Opus 编码持续失败，后续错误将被静默处理');
+        }
       }
     });
   }

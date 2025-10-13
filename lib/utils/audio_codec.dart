@@ -16,23 +16,22 @@ class AudioCodec {
   SimpleOpusEncoder? _encoder;
   SimpleOpusDecoder? _decoder;
   bool _opusInitialized = false;
-  Future<void>? _opusInitFuture;
 
   Future<void> _ensureOpusLoaded() async {
     if (_opusInitialized) return;
-    _opusInitFuture ??= _initializeOpus();
-
     try {
-      await _opusInitFuture;
-    } catch (_) {
-      _opusInitFuture = null;
-      rethrow;
+      initOpus(await opus_flutter.load());
+      _opusInitialized = true;
+    } catch (e) {
+      // 如果已经初始化过，会抛出 LateInitializationError，这是正常的
+      if (e.toString().contains('already been initialized')) {
+        _opusInitialized = true;
+        debugPrint('ℹ️ Opus 已初始化，跳过重复初始化');
+      } else {
+        debugPrint('❌ Opus 初始化失败: $e');
+        rethrow;
+      }
     }
-  }
-
-  Future<void> _initializeOpus() async {
-    initOpus(await opus_flutter.load());
-    _opusInitialized = true;
   }
 
   /// PCM16 转 Opus
