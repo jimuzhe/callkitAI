@@ -102,6 +102,10 @@ class PCMStreamService {
     try {
       debugPrint('🎵 PCMStreamService: 开始PCM流式播放');
 
+      // 修复：重置健康检查时间戳，避免误报
+      _lastFeedTime = DateTime.now();
+      _stuckDetectionCount = 0;
+
       // 修复：增加缓冲区到 64KB，提供更大的缓冲空间，减少电流声
       await _player!.startPlayerFromStream(
         codec: Codec.pcm16,
@@ -277,18 +281,17 @@ class PCMStreamService {
     final now = DateTime.now();
     final lastFeed = _lastFeedTime;
     
-    // 提高阈值到20秒，避免误报（AI语音可能会有较长的间隔）
-    if (lastFeed != null && now.difference(lastFeed).inSeconds > 20) {
-      debugPrint('🚨 健康检查：超过20秒无数据，可能已经结束');
-      // 不立即重启，先检查是否真的需要重启
-      if (_isFeeding || _smoothBuffer.isNotEmpty) {
+    // 修复：只在播放期间检查，避免回合对话模式误报
+    // 只有当缓冲区有数据或正在喂入时才进行卡死检查
+    if (_isFeeding || _smoothBuffer.isNotEmpty) {
+      // 播放进行中，检查是否卡死（20秒无新数据）
+      if (lastFeed != null && now.difference(lastFeed).inSeconds > 20) {
+        debugPrint('🚨 健康检查：播放中超过20秒无数据，可能卡死');
         debugPrint('🔄 检测到数据卡死，重启播放流');
         _restartStreamingIfStuck();
-      } else {
-        // 可能正常结束，只清理状态
-        debugPrint('🌟 音频播放可能已正常结束');
       }
     }
+    // 如果缓冲区为空且没有正在喂入，说明是正常的静默期（等待下一轮对话），不打印警告
     
     // 提高缓冲区清理阈值到更合理的值
     if (_smoothBuffer.length > 32000) { // 2秒音频
