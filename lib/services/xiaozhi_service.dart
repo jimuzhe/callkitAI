@@ -553,7 +553,7 @@ class XiaozhiService {
       debugPrint('🔌 [连接] 检测到已有连接，先断开...');
       await disconnect();
     }
-    
+
     // 预热 AudioCodec，确保 Opus 编码器已初始化
     try {
       debugPrint('🌡️ [初始化] 预热 AudioCodec...');
@@ -699,7 +699,7 @@ class XiaozhiService {
                 debugPrint('❌ [实时模式] 连接状态异常，跳过麦克风启动');
                 return;
               }
-              
+
               debugPrint('🎤 [实时模式] hello 已确认，开始 listenStart(realtime)');
               await listenStart(mode: 'realtime');
               if (!_keepListening) {
@@ -718,7 +718,7 @@ class XiaozhiService {
 
               final micStarted = await startMic();
               debugPrint('🎤 [麦克风] hello 后麦克风启动: ${micStarted ? "成功" : "失败"}');
-              
+
               if (!micStarted) {
                 debugPrint('⚠️ [实时模式] 麦克风启动失败，100ms后重试一次');
                 await Future.delayed(const Duration(milliseconds: 100));
@@ -791,10 +791,10 @@ class XiaozhiService {
         if (errorText is String && errorText.isNotEmpty) {
           debugPrint('❌ 服务器错误: $errorText');
           debugPrint('📦 完整错误消息: ${jsonEncode(msg)}');
-          
+
           // 如果是实时模式且错误表明未准备好，提供诊断信息
           if (_isInRealtimeMode) {
-            if (errorText.contains('not ready') || 
+            if (errorText.contains('not ready') ||
                 errorText.contains('processing message')) {
               debugPrint('⚠️ 服务器未就绪接收音频，可能需要增加启动延迟');
               debugPrint('💡 建议: 检查 listen.start 消息是否已发送');

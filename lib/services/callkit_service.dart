@@ -239,17 +239,27 @@ class CallKitService {
   Future<void> _startAICallInCallKitSession(Alarm alarm, String callId) async {
     debugPrint('🎙️ 配置CallKit音频会话以支持AI对话');
 
-    // 配置音频会话为CallKit兼容模式
+    // 配置音频会话为实时对话模式
     try {
+      // 确保音频服务已初始化
+      await AudioService.instance.initialize();
+      debugPrint('✅ 音频服务已初始化');
+      
+      // 切换到语音聊天模式（支持CallKit音频输入输出）
       await AudioService.instance.enterVoiceChatMode();
-      debugPrint('✅ 音频会话已切换至语音聊天模式（CallKit兼容）');
+      debugPrint('✅ 音频会话已切换至语音聊天模式');
     } catch (e) {
       debugPrint('⚠️ 音频会话配置失败: $e，尝试继续');
     }
 
-    // 启动AI对话服务
-    await AIService.instance.startConversation(alarm: alarm);
-    debugPrint('✅ AI对话已在CallKit通话界面中启动');
+    // 启动AI对话服务（默认使用实时模式）
+    try {
+      await AIService.instance.startConversation(alarm: alarm);
+      debugPrint('✅ AI实时对话已在CallKit通话界面中启动');
+    } catch (e) {
+      debugPrint('❌ AI对话启动失败: $e');
+      rethrow;
+    }
 
     // 监听AI对话结束事件，自动结束CallKit通话
     _monitorAICallAndEndCallKit(callId);
