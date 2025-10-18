@@ -61,15 +61,16 @@ class PCMStreamService {
       final categoryOptions =
           AVAudioSessionCategoryOptions.defaultToSpeaker |
           AVAudioSessionCategoryOptions.allowBluetooth |
-          
           AVAudioSessionCategoryOptions.mixWithOthers; // 允许与其他音频混合
 
       await session.configure(
         AudioSessionConfiguration(
           avAudioSessionCategory: AVAudioSessionCategory.playAndRecord,
           avAudioSessionCategoryOptions: categoryOptions,
-          avAudioSessionMode: AVAudioSessionMode.voiceChat, // 与通话一致的语音聊天模式，减少模式切换带来的伪影
-          avAudioSessionRouteSharingPolicy: AVAudioSessionRouteSharingPolicy.defaultPolicy,
+          avAudioSessionMode:
+              AVAudioSessionMode.voiceChat, // 与通话一致的语音聊天模式，减少模式切换带来的伪影
+          avAudioSessionRouteSharingPolicy:
+              AVAudioSessionRouteSharingPolicy.defaultPolicy,
           avAudioSessionSetActiveOptions: AVAudioSessionSetActiveOptions.none,
           androidAudioAttributes: const AndroidAudioAttributes(
             contentType: AndroidAudioContentType.speech,
@@ -143,14 +144,14 @@ class PCMStreamService {
   Timer? _stuckDetectionTimer; // 单个超时检测定时器
   bool _isFeeding = false; // 正在喂入数据的标记
   DateTime? _lastRestartTime; // 上次重启的时间
-  
+
   /// 喂入PCM数据（优化版 - 增加卡死检测和自动恢复）
   Future<void> feedPCM(Uint8List pcmData) async {
     if (pcmData.isEmpty) {
       debugPrint('⚠️ 收到空PCM数据，跳过');
       return;
     }
-    
+
     // 启动播放流（如果尚未启动）
     if (!_isStreaming) {
       await startStreaming();
@@ -159,7 +160,7 @@ class PCMStreamService {
     try {
       // 更新最后喂入时间
       _lastFeedTime = DateTime.now();
-      
+
       // 防止缓冲区过大导致卡死
       const maxBufferSize = 16000; // 限制缓冲区最大1秒的音频
       if (_smoothBuffer.length > maxBufferSize) {
@@ -167,7 +168,7 @@ class PCMStreamService {
         _smoothBuffer.clear();
         await _restartStreamingIfStuck(); // 重启播放流
       }
-      
+
       // 添加数据到缓冲区
       _smoothBuffer.addAll(pcmData);
 
@@ -175,19 +176,19 @@ class PCMStreamService {
       final currentThreshold = _calculateOptimalThreshold();
       if (_smoothBuffer.length >= currentThreshold) {
         final dataToFeed = Uint8List.fromList(_smoothBuffer);
-        
+
         // 清空缓冲区
         _smoothBuffer.clear();
-        
+
         // 如果已经有数据在喂入，等待它完成
         if (_isFeeding) {
           debugPrint('⚠️ 上一批数据尚未喂入完成，跳过本次喂入');
           return;
         }
-        
+
         // 标记开始喂入
         _isFeeding = true;
-        
+
         // 启动单个超时检测定时器
         _stuckDetectionTimer?.cancel();
         _stuckDetectionTimer = Timer(const Duration(seconds: 3), () {
@@ -195,36 +196,41 @@ class PCMStreamService {
             debugPrint('🚨 数据喂入超时3秒，可能卡死');
             _stuckDetectionCount++;
             _isFeeding = false; // 重置状态
-            
+
             if (_stuckDetectionCount >= 2) {
               debugPrint('🔄 检测到卡死，重启播放流');
               _restartStreamingIfStuck();
             }
           }
         });
-        
+
         // 异步喂入数据
-        _player!.feedUint8FromStream(dataToFeed).then((_) {
-          // 成功完成，重置状态
-          _isFeeding = false;
-          _stuckDetectionCount = 0;
-          _stuckDetectionTimer?.cancel();
-        }).catchError((e) {
-          debugPrint('❌ PCM喂入错误: $e');
-          _isFeeding = false;
-          _stuckDetectionTimer?.cancel();
-          _handleFeedError(e);
-        });
+        _player!
+            .feedUint8FromStream(dataToFeed)
+            .then((_) {
+              // 成功完成，重置状态
+              _isFeeding = false;
+              _stuckDetectionCount = 0;
+              _stuckDetectionTimer?.cancel();
+            })
+            .catchError((e) {
+              debugPrint('❌ PCM喂入错误: $e');
+              _isFeeding = false;
+              _stuckDetectionTimer?.cancel();
+              _handleFeedError(e);
+            });
 
         // 减少日志输出频率
         if (kDebugMode) {
           _logCounter++;
           if (_logCounter % 50 == 0) {
-            debugPrint('🌀 PCM喂入: ${dataToFeed.length} bytes (阈值: $currentThreshold)');
+            debugPrint(
+              '🌀 PCM喂入: ${dataToFeed.length} bytes (阈值: $currentThreshold)',
+            );
           }
         }
       }
-      
+
       // 启动健康检查（如果尚未启动）
       _ensureHealthCheck();
     } catch (e) {
@@ -232,7 +238,7 @@ class PCMStreamService {
       await _handleFeedError(e);
     }
   }
-  
+
   /// 动态计算最优阈值
   int _calculateOptimalThreshold() {
     // 根据当前播放状态动态调整
@@ -241,15 +247,15 @@ class PCMStreamService {
     }
     return _smoothThreshold;
   }
-  
+
   /// 处理喂入错误
   Future<void> _handleFeedError(dynamic error) async {
     debugPrint('🚨 PCM喂入错误，尝试恢复: $error');
-    
+
     try {
       // 清空缓冲区
       _smoothBuffer.clear();
-      
+
       // 如果连续错误太多，重启播放流
       _stuckDetectionCount++;
       if (_stuckDetectionCount >= 2) {
@@ -260,27 +266,27 @@ class PCMStreamService {
       debugPrint('❌ 处理喂入错误时出现异常: $e');
     }
   }
-  
+
   /// 确保健康检查定时器运行
   void _ensureHealthCheck() {
     if (_healthCheckTimer?.isActive == true) return;
-    
+
     // 降低检查频率以减少干扰
     _healthCheckTimer = Timer.periodic(const Duration(seconds: 10), (_) {
       _performHealthCheck();
     });
   }
-  
+
   /// 执行健康检查（优化版 - 降低误报）
   void _performHealthCheck() {
     if (!_isStreaming) {
       _healthCheckTimer?.cancel();
       return;
     }
-    
+
     final now = DateTime.now();
     final lastFeed = _lastFeedTime;
-    
+
     // 修复：只在播放期间检查，避免回合对话模式误报
     // 只有当缓冲区有数据或正在喂入时才进行卡死检查
     if (_isFeeding || _smoothBuffer.isNotEmpty) {
@@ -292,18 +298,19 @@ class PCMStreamService {
       }
     }
     // 如果缓冲区为空且没有正在喂入，说明是正常的静默期（等待下一轮对话），不打印警告
-    
+
     // 提高缓冲区清理阈值到更合理的值
-    if (_smoothBuffer.length > 32000) { // 2秒音频
+    if (_smoothBuffer.length > 32000) {
+      // 2秒音频
       debugPrint('🧹 健康检查：清理过大缓冲区 (${_smoothBuffer.length} bytes)');
       _smoothBuffer.clear();
     }
   }
-  
+
   /// 重启播放流（如果检测到卡死） - 增加防止频繁重启的冷却机制
   Future<void> _restartStreamingIfStuck() async {
     final now = DateTime.now();
-    
+
     // 检查冷却时间：距离上次重启必须超过3秒
     if (_lastRestartTime != null) {
       final elapsed = now.difference(_lastRestartTime!);
@@ -312,24 +319,24 @@ class PCMStreamService {
         return;
       }
     }
-    
+
     try {
       debugPrint('🔄 重启播放流以恢复播放');
       _lastRestartTime = now; // 记录重启时间
-      
+
       // 停止当前播放
       await stopStreaming();
-      
+
       // 较长的延迟确保清理完成
       await Future.delayed(const Duration(milliseconds: 500));
-      
+
       // 重新启动
       await startStreaming();
-      
+
       // 重置计数器
       _stuckDetectionCount = 0;
       _lastFeedTime = DateTime.now();
-      
+
       debugPrint('✅ 播放流重启完成');
     } catch (e) {
       debugPrint('❌ 重启播放流失败: $e');
@@ -417,19 +424,26 @@ class PCMStreamService {
         try {
           final remainingData = Uint8List.fromList(_smoothBuffer);
           // 使用超时机制防止刷新时卡死
-          await _player!.feedUint8FromStream(remainingData).timeout(
-            const Duration(milliseconds: 500),
-            onTimeout: () {
-              debugPrint('⚠️ 刷新剩余数据超时，放弃');
-              throw TimeoutException('刷新剩余数据超时', const Duration(milliseconds: 500));
-            },
+          await _player!
+              .feedUint8FromStream(remainingData)
+              .timeout(
+                const Duration(milliseconds: 500),
+                onTimeout: () {
+                  debugPrint('⚠️ 刷新剩余数据超时，放弃');
+                  throw TimeoutException(
+                    '刷新剩余数据超时',
+                    const Duration(milliseconds: 500),
+                  );
+                },
+              );
+          debugPrint(
+            '🧹 PCMStreamService: 已刷新剩余缓冲 ${remainingData.length} bytes',
           );
-          debugPrint('🧹 PCMStreamService: 已刷新剩余缓冲 ${remainingData.length} bytes');
         } catch (e) {
           debugPrint('⚠️ PCMStreamService: 刷新剩余数据失败: $e');
         }
       }
-      
+
       // 3. 清空所有缓冲区
       _smoothBuffer.clear();
 
@@ -448,14 +462,14 @@ class PCMStreamService {
       } catch (e) {
         debugPrint('⚠️ 停止播放器异常: $e');
       }
-      
+
       // 6. 重置所有状态
       _isStreaming = false;
       _isPlaying = false;
       _stuckDetectionCount = 0;
       _lastFeedTime = null;
       _isFeeding = false;
-      
+
       // 7. 触发回调
       try {
         onPlayingStateChanged?.call(false);
@@ -467,7 +481,7 @@ class PCMStreamService {
       debugPrint('✅ PCMStreamService: 流式播放已彻底停止');
     } catch (e) {
       debugPrint('❌ PCMStreamService: 停止播放失败: $e');
-      
+
       // 即使停止失败也要重置状态，防止永久卡死
       _isStreaming = false;
       _isPlaying = false;
@@ -475,12 +489,12 @@ class PCMStreamService {
       _lastFeedTime = null;
       _isFeeding = false;
       _smoothBuffer.clear();
-      
+
       // 清理定时器
       _feedTimer?.cancel();
       _healthCheckTimer?.cancel();
       _stuckDetectionTimer?.cancel();
-      
+
       // 仍然触发回调
       try {
         onPlayingStateChanged?.call(false);

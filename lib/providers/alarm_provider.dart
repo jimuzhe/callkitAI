@@ -68,16 +68,20 @@ class AlarmProvider extends ChangeNotifier {
     await loadAlarms();
   }
 
-  Future<void> loadAlarms() async {
-    _isLoading = true;
-    notifyListeners();
+  Future<void> loadAlarms({bool showLoading = true}) async {
+    if (showLoading) {
+      _isLoading = true;
+      notifyListeners();
+    }
 
     try {
       _alarms = await DatabaseHelperHybrid.instance.getAllAlarms();
     } catch (e) {
       debugPrint('加载闹钟失败: $e');
     } finally {
-      _isLoading = false;
+      if (showLoading) {
+        _isLoading = false;
+      }
       notifyListeners();
     }
   }
@@ -100,48 +104,119 @@ class AlarmProvider extends ChangeNotifier {
       createdAt: DateTime.now(),
     );
 
-    await DatabaseHelperHybrid.instance.createAlarm(alarm);
-    await _scheduleAlarm(alarm);
-    await loadAlarms();
-    
-    // 触发增量同步
-    unawaited(_syncManager.triggerIncrementalSync());
+    // 🚀 乐观更新：立即添加到列表并刷新UI
+    _alarms.add(alarm);
+    notifyListeners();
+
+    // 后台异步保存
+    try {
+      await DatabaseHelperHybrid.instance.createAlarm(alarm);
+      await _scheduleAlarm(alarm);
+      
+      // 触发增量同步
+      unawaited(_syncManager.triggerIncrementalSync());
+    } catch (e) {
+      debugPrint('❌ 添加闹钟失败: $e');
+      // 如果失败，从列表中移除并重新加载
+      _alarms.removeWhere((a) => a.id == alarm.id);
+      await loadAlarms();
+      rethrow;
+    }
   }
 
   Future<void> updateAlarm(Alarm alarm) async {
-    await DatabaseHelperHybrid.instance.updateAlarm(alarm);
-
-    // 重新调度通知
-    await NotificationService.instance.cancelNotification(alarm.id.hashCode);
-    CallKitService.instance.cancelScheduledCall(alarm.id);
+    // 🚀 乐观更新：立即更新列表并刷新UI
+    final index = _alarms.indexWhere((a) => a.id == alarm.id);
+    final oldAlarm = index >= 0 ? _alarms[index] : null;
     
-    if (alarm.isEnabled) {
-      await _scheduleAlarm(alarm);
+    if (index >= 0) {
+      _alarms[index] = alarm;
+      notifyListeners();
     }
 
-    await loadAlarms();
-    
-    // 触发增量同步
-    unawaited(_syncManager.triggerIncrementalSync());
+    // 后台异步保存
+    try {
+      await DatabaseHelperHybrid.instance.updateAlarm(alarm);
+
+      // 重新调度通知
+      await NotificationService.instance.cancelNotification(alarm.id.hashCode);
+      CallKitService.instance.cancelScheduledCall(alarm.id);
+      
+      if (alarm.isEnabled) {
+        await _scheduleAlarm(alarm);
+      }
+      
+      // 触发增量同步
+      unawaited(_syncManager.triggerIncrementalSync());
+    } catch (e) {
+      debugPrint('❌ 更新闹钟失败: $e');
+      // 如果失败，恢复旧值并重新加载
+      if (oldAlarm != null && index >= 0) {
+        _alarms[index] = oldAlarm;
+      }
+      await loadAlarms();
+      rethrow;
+    }
   }
 
   Future<void> toggleAlarm(String id, bool enabled) async {
-    final alarm = _alarms.firstWhere((a) => a.id == id);
-    final updated = alarm.copyWith(isEnabled: enabled);
-    await updateAlarm(updated);
-    if (!enabled) {
-      CallKitService.instance.cancelScheduledCall(id);
+    // 🚀 乐观更新：立即切换状态
+    final index = _alarms.indexWhere((a) => a.id == id);
+    if (index < 0) return;
+    
+    final oldAlarm = _alarms[index];
+    final updated = oldAlarm.copyWith(isEnabled: enabled);
+    
+    _alarms[index] = updated;
+    notifyListeners();
+
+    // 后台异步保存
+    try {
+      await DatabaseHelperHybrid.instance.updateAlarm(updated);
+      
+      // 重新调度通知
+      await NotificationService.instance.cancelNotification(updated.id.hashCode);
+      CallKitService.instance.cancelScheduledCall(updated.id);
+      
+      if (enabled) {
+        await _scheduleAlarm(updated);
+      }
+      
+      // 触发增量同步
+      unawaited(_syncManager.triggerIncrementalSync());
+    } catch (e) {
+      debugPrint('❌ 切换闹钟状态失败: $e');
+      // 如果失败，恢复旧值
+      _alarms[index] = oldAlarm;
+      notifyListeners();
+      rethrow;
     }
   }
 
   Future<void> deleteAlarm(String id) async {
-    await NotificationService.instance.cancelNotification(id.hashCode);
-    CallKitService.instance.cancelScheduledCall(id);
-    await DatabaseHelperHybrid.instance.deleteAlarm(id);
-    await loadAlarms();
+    // 🚀 乐观更新：立即从列表移除
+    final index = _alarms.indexWhere((a) => a.id == id);
+    if (index < 0) return;
     
-    // 触发增量同步
-    unawaited(_syncManager.triggerIncrementalSync());
+    final deletedAlarm = _alarms[index];
+    _alarms.removeAt(index);
+    notifyListeners();
+
+    // 后台异步删除
+    try {
+      await NotificationService.instance.cancelNotification(id.hashCode);
+      CallKitService.instance.cancelScheduledCall(id);
+      await DatabaseHelperHybrid.instance.deleteAlarm(id);
+      
+      // 触发增量同步
+      unawaited(_syncManager.triggerIncrementalSync());
+    } catch (e) {
+      debugPrint('❌ 删除闹钟失败: $e');
+      // 如果失败，恢复删除的闹钟
+      _alarms.insert(index, deletedAlarm);
+      notifyListeners();
+      rethrow;
+    }
   }
 
   Future<void> _scheduleAlarm(Alarm alarm) async {
@@ -252,19 +327,90 @@ class AlarmProvider extends ChangeNotifier {
     final snoozedTime = DateTime.now().add(offset);
     final updated = currentAlarm.copyWith(nextAlarmTime: snoozedTime);
 
-    await DatabaseHelperHybrid.instance.updateAlarm(updated);
-    await NotificationService.instance.cancelNotification(
-      currentAlarm.id.hashCode,
-    );
-    await NotificationService.instance.scheduleAlarmNotification(
-      id: currentAlarm.id.hashCode,
-      title: currentAlarm.name,
-      body: 'AI助手将稍后再次来电',
-      scheduledDate: snoozedTime,
-      payload: currentAlarm.id,
-    );
-    CallKitService.instance.scheduleIncomingCall(updated, snoozedTime);
+    // 🚀 乐观更新
+    final index = _alarms.indexWhere((a) => a.id == id);
+    if (index >= 0) {
+      _alarms[index] = updated;
+      notifyListeners();
+    }
 
-    await loadAlarms();
+    // 后台异步保存
+    try {
+      await DatabaseHelperHybrid.instance.updateAlarm(updated);
+      await NotificationService.instance.cancelNotification(
+        currentAlarm.id.hashCode,
+      );
+      await NotificationService.instance.scheduleAlarmNotification(
+        id: currentAlarm.id.hashCode,
+        title: currentAlarm.name,
+        body: 'AI助手将稍后再次来电',
+        scheduledDate: snoozedTime,
+        payload: currentAlarm.id,
+      );
+      CallKitService.instance.scheduleIncomingCall(updated, snoozedTime);
+    } catch (e) {
+      debugPrint('❌ 贪睡设置失败: $e');
+      // 失败时重新加载
+      await loadAlarms(showLoading: false);
+      rethrow;
+    }
+  }
+
+  /// 批量删除闹钟（优化版）
+  Future<void> deleteAlarms(List<String> ids) async {
+    if (ids.isEmpty) return;
+
+    // 🚀 乐观更新：立即从列表移除所有
+    final deletedAlarms = <int, Alarm>{};
+    for (final id in ids) {
+      final index = _alarms.indexWhere((a) => a.id == id);
+      if (index >= 0) {
+        deletedAlarms[index] = _alarms[index];
+      }
+    }
+    
+    _alarms.removeWhere((a) => ids.contains(a.id));
+    notifyListeners();
+
+    // 后台异步删除
+    try {
+      for (final id in ids) {
+        await NotificationService.instance.cancelNotification(id.hashCode);
+        CallKitService.instance.cancelScheduledCall(id);
+        await DatabaseHelperHybrid.instance.deleteAlarm(id);
+      }
+      
+      // 触发增量同步
+      unawaited(_syncManager.triggerIncrementalSync());
+    } catch (e) {
+      debugPrint('❌ 批量删除闹钟失败: $e');
+      // 如果失败，恢复删除的闹钟
+      deletedAlarms.forEach((index, alarm) {
+        _alarms.insert(index, alarm);
+      });
+      notifyListeners();
+      rethrow;
+    }
+  }
+
+  /// 刷新单个闹钟（用于后台更新后同步）
+  Future<void> refreshAlarm(String id) async {
+    try {
+      final updated = await DatabaseHelperHybrid.instance.getAlarmById(id);
+      if (updated == null) {
+        // 闹钟已被删除
+        _alarms.removeWhere((a) => a.id == id);
+      } else {
+        final index = _alarms.indexWhere((a) => a.id == id);
+        if (index >= 0) {
+          _alarms[index] = updated;
+        } else {
+          _alarms.add(updated);
+        }
+      }
+      notifyListeners();
+    } catch (e) {
+      debugPrint('❌ 刷新闹钟失败: $e');
+    }
   }
 }

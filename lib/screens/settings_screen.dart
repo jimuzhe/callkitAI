@@ -13,6 +13,7 @@ import '../services/persona_store.dart';
 import '../widgets/metallic_card.dart';
 import '../services/weather_service.dart';
 import '../pages/audio_test_page.dart';
+import '../pages/debug_log_page.dart';
 import 'log_viewer_screen.dart';
 import '../services/audio_service.dart';
 // location_service not used here; keep imports minimal
@@ -739,6 +740,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
             context,
             title: '调试',
             children: [
+              _buildMetallicListTile(
+                context,
+                icon: Icons.bug_report_outlined,
+                title: '实时日志',
+                subtitle: '查看应用运行日志（用于诊断连接问题）',
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const DebugLogPage(),
+                    ),
+                  );
+                },
+              ),
+              const Divider(height: 1, indent: 56, endIndent: 16),
               _buildMetallicListTile(
                 context,
                 icon: Icons.speaker_outlined,
