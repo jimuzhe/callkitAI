@@ -706,9 +706,9 @@ class XiaozhiService {
                 setKeepListening(true);
               }
 
-              // 关键修复：延迟启动麦克风，确保服务器先处理 listen.start 消息
-              debugPrint('⏱️ [实时模式] 等待500ms让服务器处理 listen.start...');
-              await Future.delayed(const Duration(milliseconds: 500));
+              // 关键修复：延迟启动麦克风，确保服务器先处理 listen.start 和指示词
+              debugPrint('⏱️ [实时模式] 等待1500ms让服务器处理 listen.start 和指示词...');
+              await Future.delayed(const Duration(milliseconds: 1500));
 
               // 再次验证连接状态
               if (!isConnected || _protocol == null) {

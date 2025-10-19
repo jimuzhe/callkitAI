@@ -28,11 +28,16 @@ class AIService {
         debugPrint('🤖 在CallKit会话中启动AI对话 (CallID: $_callKitCallId)');
       }
 
+      // 🔥 关键修复：先准备指示词，在连接建立后立即发送（在麦克风启动前）
+      debugPrint('📝 准备闹钟指示词...');
+      final directiveText = await _prepareDirectiveText(alarm);
+      debugPrint('✅ 指示词已准备，长度: ${directiveText.length}');
+
       // Always use realtime mode for alarm-initiated calls
       await AICallManager.instance.startCall(AICallMode.realtime);
 
-      // After WS connected, send directive text once
-      await _sendDirectiveAfterConnected(alarm);
+      // 🔥 在连接成功后立即发送指示词（优先级最高）
+      await _sendDirectiveAfterConnected(alarm, prebuiltDirective: directiveText);
     } catch (e) {
       debugPrint('AIService.startConversation failed: $e');
       // 如果在CallKit会话中启动失败，结束CallKit通话
@@ -66,10 +71,14 @@ class AIService {
     }
   }
 
-  Future<void> _sendDirectiveAfterConnected(Alarm alarm) async {
+  Future<void> _sendDirectiveAfterConnected(
+    Alarm alarm, {
+    String? prebuiltDirective,
+  }) async {
     // If already connected, send immediately
     if (XiaozhiService.instance.isConnected) {
-      await _sendDirectiveText(alarm);
+      debugPrint('🚀 连接已建立，立即发送指示词');
+      await _sendDirectiveText(alarm, prebuiltDirective: prebuiltDirective);
       return;
     }
 
@@ -79,7 +88,8 @@ class AIService {
     _connSub = XiaozhiService.instance.connectionStream.listen((ok) async {
       if (!ok) return;
       try {
-        await _sendDirectiveText(alarm);
+        debugPrint('🚀 连接成功，立即发送指示词');
+        await _sendDirectiveText(alarm, prebuiltDirective: prebuiltDirective);
       } catch (e) {
         debugPrint('send directive after connected failed: $e');
       } finally {
@@ -96,7 +106,8 @@ class AIService {
         try {
           // Try anyway even if we didn't observe the event
           if (XiaozhiService.instance.isConnected) {
-            await _sendDirectiveText(alarm);
+            debugPrint('⏱️ 超时后尝试发送指示词');
+            await _sendDirectiveText(alarm, prebuiltDirective: prebuiltDirective);
           }
         } catch (_) {}
         if (!completer.isCompleted) completer.complete();
@@ -106,20 +117,18 @@ class AIService {
     return completer.future;
   }
 
-  Future<void> _sendDirectiveText(Alarm alarm) async {
+  /// 预先构建指示词文本（不发送）
+  Future<String> _prepareDirectiveText(Alarm alarm) async {
     // 构建闹钟上下文信息
     final alarmContext = _buildAlarmContext(alarm);
-    debugPrint('📋 闹钟上下文: $alarmContext');
 
     // 1) Try persona-based directive (alarm.aiPersonaId)
     String? directive;
-    String? personaName;
     try {
       final persona = await PersonaStore.instance.getByIdMerged(
         alarm.aiPersonaId,
       );
       if (persona != null) {
-        personaName = persona.name;
         final prompt = _applyDirectivePlaceholders(alarm, persona.systemPrompt);
         final opening = persona.openingLine.trim().isNotEmpty
             ? '\n开场白建议：${_applyDirectivePlaceholders(alarm, persona.openingLine)}'
@@ -140,7 +149,23 @@ class AIService {
     }
 
     // 3) 将闹钟上下文信息添加到指示词前面
-    final fullDirective = '$alarmContext\n\n$directive';
+    return '$alarmContext\n\n$directive';
+  }
+
+  Future<void> _sendDirectiveText(
+    Alarm alarm, {
+    String? prebuiltDirective,
+  }) async {
+    final fullDirective = prebuiltDirective ?? await _prepareDirectiveText(alarm);
+
+    // 获取人设名称用于日志
+    String? personaName;
+    try {
+      final persona = await PersonaStore.instance.getByIdMerged(
+        alarm.aiPersonaId,
+      );
+      personaName = persona?.name;
+    } catch (_) {}
 
     // Use text channel to inject instruction into the conversation
     await XiaozhiService.instance.sendText(fullDirective);
@@ -148,6 +173,7 @@ class AIService {
     debugPrint('   闹钟: ${alarm.name}');
     debugPrint('   人设: ${personaName ?? "默认"}');
     debugPrint('   时间: ${alarm.getFormattedTime()}');
+    debugPrint('   指示词长度: ${fullDirective.length} 字符');
   }
 
   /// 构建闹钟上下文信息，让小智了解闹钟的目的
