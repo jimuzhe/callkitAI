@@ -75,14 +75,25 @@ class AlarmProvider extends ChangeNotifier {
     }
 
     try {
+      debugPrint('🔄 AlarmProvider: 开始加载闹钟...');
       _alarms = await DatabaseHelperHybrid.instance.getAllAlarms();
+      debugPrint('✅ AlarmProvider: 加载成功，共 ${_alarms.length} 个闹钟');
+      
+      // 打印前3个闹钟的信息用于调试
+      if (_alarms.isNotEmpty) {
+        for (var i = 0; i < _alarms.length && i < 3; i++) {
+          final alarm = _alarms[i];
+          debugPrint('   闹钟 ${i + 1}: ${alarm.name} (${alarm.getFormattedTime()}) - ${alarm.isEnabled ? "开启" : "关闭"}');
+        }
+      }
     } catch (e) {
-      debugPrint('加载闹钟失败: $e');
+      debugPrint('❌ AlarmProvider: 加载闹钟失败: $e');
     } finally {
       if (showLoading) {
         _isLoading = false;
       }
       notifyListeners();
+      debugPrint('📢 AlarmProvider: notifyListeners 已调用');
     }
   }
 

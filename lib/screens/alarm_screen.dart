@@ -35,9 +35,16 @@ class _AlarmScreenState extends State<AlarmScreen>
       curve: Curves.easeOutCubic,
     );
     
+    // 初始化动画为完成状态，避免首次加载时列表不显示
+    _refreshAnimController.value = 1.0;
+    
     // 加载闹钟数据
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<AlarmProvider>().loadAlarms();
+      debugPrint('📱 AlarmScreen: 开始加载闹钟数据');
+      context.read<AlarmProvider>().loadAlarms().then((_) {
+        final count = context.read<AlarmProvider>().alarms.length;
+        debugPrint('📱 AlarmScreen: 加载完成，共 $count 个闹钟');
+      });
     });
   }
 

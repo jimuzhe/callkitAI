@@ -5,7 +5,7 @@ import 'package:flutter_callkit_incoming/flutter_callkit_incoming.dart';
 import 'package:flutter_callkit_incoming/entities/entities.dart';
 import '../models/alarm.dart';
 import '../models/ai_call_state.dart';
-import '../utils/database_helper.dart';
+import '../utils/database_helper_hybrid.dart';
 import '../providers/alarm_provider.dart';
 import './volume_service.dart';
 import './haptics_service.dart';
@@ -131,7 +131,7 @@ class CallKitService {
       try {
         if (alarm.repeatDays.isEmpty && alarm.isEnabled) {
           final updated = alarm.copyWith(isEnabled: false, nextAlarmTime: null);
-          await DatabaseHelper.instance.updateAlarm(updated);
+          await DatabaseHelperHybrid.instance.updateAlarm(updated);
           // 通知前台刷新列表/下一次闹钟卡片
           try {
             AlarmProvider.instance?.loadAlarms();
@@ -139,7 +139,7 @@ class CallKitService {
         }
       } catch (_) {}
     } else {
-      final stored = await DatabaseHelper.instance.getAlarmById(uuid);
+      final stored = await DatabaseHelperHybrid.instance.getAlarmById(uuid);
       if (stored != null) {
         _activeCalls[uuid] = stored;
       }
@@ -215,22 +215,32 @@ class CallKitService {
     // 不恢复音量，保持最大音量以便听清AI语音
     // await VolumeService.instance.restoreVolume();
 
+    debugPrint('🔍 查找闹钟信息...');
+    debugPrint('   _activeCalls 中的闹钟: ${_activeCalls.containsKey(callId) ? "找到" : "未找到"}');
+    
     var alarm = _activeCalls[callId];
-    alarm ??= await DatabaseHelper.instance.getAlarmById(callId);
+    if (alarm == null) {
+      debugPrint('   尝试从数据库加载闹钟: $callId');
+      alarm = await DatabaseHelperHybrid.instance.getAlarmById(callId);
+    }
 
     if (alarm == null) {
       debugPrint('❌ 未找到对应闹钟信息,无法开始AI对话');
+      debugPrint('   CallID: $callId');
+      debugPrint('   _activeCalls keys: ${_activeCalls.keys.toList()}');
       await _endCallKitSession(callId);
       return;
     }
 
+    debugPrint('✅ 找到闹钟: ${alarm.name} (${alarm.getFormattedTime()})');
     debugPrint('🤖 开始在CallKit通话界面中与小智对话');
 
     // 启动AI对话（将在CallKit通话会话中运行）
     try {
       await _startAICallInCallKitSession(alarm, callId);
-    } catch (e) {
+    } catch (e, stackTrace) {
       debugPrint('❌ AI对话启动失败: $e');
+      debugPrint('📍 堆栈: $stackTrace');
       await _endCallKitSession(callId);
     }
   }

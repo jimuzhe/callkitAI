@@ -168,6 +168,8 @@ class NotificationService {
     final id = _composePanicNotificationId(alarm.id, index);
     _panicNotificationIds.add(id);
     
+    debugPrint('📢 准备发送通知 #${index + 1}/$total (ID: $id)');
+    
     const title = '紧急唤醒';
     final body = 'AI 正在呼叫你，请立即应答！ [${index + 1}/$total]';
     
@@ -222,8 +224,19 @@ class NotificationService {
   }
 
   int _composePanicNotificationId(String alarmId, int index) {
-    final base = alarmId.hashCode.abs() & 0x3fffffff;
-    return base * 1000 + index;
+    // 确保ID在32位整数范围内：[-2^31, 2^31 - 1]
+    // 最大值：2147483647 (约21亿)
+    
+    // 方案：使用alarmId的hashCode的低位 + index
+    // 1. 取hashCode的绝对值
+    // 2. 限制在2000万以内（留出空间给index）
+    // 3. 乘以100（最多支持100个通知）+ index
+    
+    final base = (alarmId.hashCode.abs() % 20000000); // 限制在2000万以内
+    final id = base * 100 + index; // 最大：2000000000 + 100 = 2000000100
+    
+    // 确保不超过32位整数最大值
+    return id.clamp(0, 2147483647);
   }
 
   Future<void> scheduleAlarmNotification({
