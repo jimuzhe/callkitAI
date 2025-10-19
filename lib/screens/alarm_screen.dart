@@ -17,6 +17,7 @@ class AlarmScreen extends StatefulWidget {
 class _AlarmScreenState extends State<AlarmScreen>
     with SingleTickerProviderStateMixin {
   bool _isRefreshing = false;
+  DateTime? _lastRefreshTime;
   late AnimationController _refreshAnimController;
   late Animation<double> _refreshAnimation;
 
@@ -46,6 +47,21 @@ class _AlarmScreenState extends State<AlarmScreen>
     super.dispose();
   }
 
+  String _formatRefreshTime(DateTime time) {
+    final now = DateTime.now();
+    final diff = now.difference(time);
+
+    if (diff.inSeconds < 60) {
+      return '刚刚';
+    } else if (diff.inMinutes < 60) {
+      return '${diff.inMinutes}分钟前';
+    } else if (diff.inHours < 24) {
+      return '${diff.inHours}小时前';
+    } else {
+      return '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
+    }
+  }
+
   Future<void> _refreshAlarms(BuildContext context) async {
     if (_isRefreshing) return; // 防止重复刷新
     
@@ -68,13 +84,18 @@ class _AlarmScreenState extends State<AlarmScreen>
         // 成功反馈
         await HapticsService.instance.impact();
         
+        // 更新刷新时间
+        setState(() {
+          _lastRefreshTime = DateTime.now();
+        });
+        
         // 显示成功提示（可选）
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Row(
                 children: [
-                  Icon(Icons.check_circle, color: Colors.white, size: 20),
+                  const Icon(Icons.check_circle, color: Colors.white, size: 20),
                   const SizedBox(width: 8),
                   Text('已刷新 ${context.read<AlarmProvider>().alarms.length} 个闹钟'),
                 ],
@@ -92,13 +113,13 @@ class _AlarmScreenState extends State<AlarmScreen>
       }
     } catch (e) {
       if (mounted) {
-        // 错误反馈
-        await HapticsService.instance.error();
+        // 错误反馈 - 使用强烈震动
+        await HapticsService.instance.alertVibration();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Row(
               children: [
-                Icon(Icons.error_outline, color: Colors.white, size: 20),
+                const Icon(Icons.error_outline, color: Colors.white, size: 20),
                 const SizedBox(width: 8),
                 Expanded(child: Text('刷新失败: $e')),
               ],
@@ -192,21 +213,47 @@ class _AlarmScreenState extends State<AlarmScreen>
                   SliverToBoxAdapter(
                     child: Padding(
                       padding: const EdgeInsets.fromLTRB(16, 24, 16, 8),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      child: Column(
                         children: [
-                          Text(
-                            '我的闹钟',
-                            style: Theme.of(context).textTheme.titleLarge
-                                ?.copyWith(fontWeight: FontWeight.bold),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                '我的闹钟',
+                                style: Theme.of(context).textTheme.titleLarge
+                                    ?.copyWith(fontWeight: FontWeight.bold),
+                              ),
+                              Text(
+                                '${provider.alarms.length}个',
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .bodyMedium
+                                    ?.copyWith(color: Colors.grey),
+                              ),
+                            ],
                           ),
-                          Text(
-                            '${provider.alarms.length}个',
-                            style: Theme.of(context)
-                                .textTheme
-                                .bodyMedium
-                                ?.copyWith(color: Colors.grey),
-                          ),
+                          // 最后刷新时间（可选显示）
+                          if (_lastRefreshTime != null)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 4),
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    Icons.access_time,
+                                    size: 12,
+                                    color: Colors.grey[400],
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    '最后刷新: ${_formatRefreshTime(_lastRefreshTime!)}',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: Colors.grey[400],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
                         ],
                       ),
                     ),
