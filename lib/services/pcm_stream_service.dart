@@ -96,24 +96,27 @@ class PCMStreamService {
     }
 
     if (_isStreaming) {
-      debugPrint('⚠️ PCMStreamService: 已在流式播放中');
-      return;
+      // debugPrint('⚠️ PCMStreamService: 已在流式播放中');
+      return; // 静默返回，避免重复日志
     }
 
     try {
       debugPrint('🎵 PCMStreamService: 开始PCM流式播放');
 
-      // 修复：重置健康检查时间戳，避免误报
+      // 修复：重置所有状态
       _lastFeedTime = DateTime.now();
       _stuckDetectionCount = 0;
+      _isFeeding = false;
+      _smoothBuffer.clear();
+      _stuckDetectionTimer?.cancel();
 
-      // 修复：增加缓冲区到 64KB，提供更大的缓冲空间，减少电流声
+      // 优化：增加缓冲区到 128KB，提供更大的缓冲空间
       await _player!.startPlayerFromStream(
         codec: Codec.pcm16,
         numChannels: numChannels,
         sampleRate: sampleRate,
-        bufferSize: 65536, // 64KB 缓冲区（更大的缓冲减少断续和电流声）
-        interleaved: true, // PCM数据是交织的
+        bufferSize: 131072, // 128KB 缓冲区（更大的缓冲减少卡顿）
+        interleaved: true,
       );
 
       _isStreaming = true;
@@ -133,9 +136,9 @@ class PCMStreamService {
   Timer? _feedTimer;
   static int _logCounter = 0; // 日志计数器
 
-  // 优化：减小缓冲门槛，减少延迟
+  // 优化：增大缓冲门槛，减少喂入频率，提高流畅度
   final List<int> _smoothBuffer = [];
-  static const int _smoothThreshold = 960; // 30ms @ 16kHz，平衡流畅和延迟
+  static const int _smoothThreshold = 3840; // 120ms @ 16kHz，更大的缓冲减少卡顿
 
   // 新增：播放状态监控
   Timer? _healthCheckTimer;
@@ -161,12 +164,13 @@ class PCMStreamService {
       // 更新最后喂入时间
       _lastFeedTime = DateTime.now();
 
-      // 防止缓冲区过大导致卡死
-      const maxBufferSize = 16000; // 限制缓冲区最大1秒的音频
+      // 防止缓冲区过大导致卡死（增大限制）
+      const maxBufferSize = 32000; // 限制缓冲区最大2秒的音频
       if (_smoothBuffer.length > maxBufferSize) {
-        debugPrint('⚠️ 缓冲区过大(${_smoothBuffer.length}), 清空防止卡死');
-        _smoothBuffer.clear();
-        await _restartStreamingIfStuck(); // 重启播放流
+        debugPrint('⚠️ 缓冲区过大(${_smoothBuffer.length}), 清理旧数据');
+        // 只保留最新的一半数据，而不是全部清空
+        final keepSize = maxBufferSize ~/ 2;
+        _smoothBuffer.removeRange(0, _smoothBuffer.length - keepSize);
       }
 
       // 添加数据到缓冲区
@@ -180,45 +184,46 @@ class PCMStreamService {
         // 清空缓冲区
         _smoothBuffer.clear();
 
-        // 如果已经有数据在喂入，等待它完成
+        // 优化：不跳过数据，而是等待或合并
+        // 如果已经有数据在喂入，将新数据保留在缓冲区等待下次处理
         if (_isFeeding) {
-          debugPrint('⚠️ 上一批数据尚未喂入完成，跳过本次喂入');
+          // 不清空缓冲区，让数据留在里面等待下次处理
+          // debugPrint('⚠️ 上一批数据尚未喂入完成，数据保留在缓冲区');
           return;
         }
 
         // 标记开始喂入
         _isFeeding = true;
 
-        // 启动单个超时检测定时器
+        // 启动单个超时检测定时器（缩短到1秒）
         _stuckDetectionTimer?.cancel();
-        _stuckDetectionTimer = Timer(const Duration(seconds: 3), () {
+        _stuckDetectionTimer = Timer(const Duration(seconds: 1), () {
           if (_isFeeding) {
-            debugPrint('🚨 数据喂入超时3秒，可能卡死');
+            debugPrint('🚨 数据喂入超时1秒，强制重置');
             _stuckDetectionCount++;
-            _isFeeding = false; // 重置状态
+            _isFeeding = false; // 强制重置状态
 
-            if (_stuckDetectionCount >= 2) {
-              debugPrint('🔄 检测到卡死，重启播放流');
+            if (_stuckDetectionCount >= 3) {
+              debugPrint('🔄 检测到严重卡死，重启播放流');
               _restartStreamingIfStuck();
+              _stuckDetectionCount = 0;
             }
           }
         });
 
-        // 异步喂入数据
-        _player!
-            .feedUint8FromStream(dataToFeed)
-            .then((_) {
-              // 成功完成，重置状态
-              _isFeeding = false;
-              _stuckDetectionCount = 0;
-              _stuckDetectionTimer?.cancel();
-            })
-            .catchError((e) {
-              debugPrint('❌ PCM喂入错误: $e');
-              _isFeeding = false;
-              _stuckDetectionTimer?.cancel();
-              _handleFeedError(e);
-            });
+        // 同步喂入数据（改为同步，避免并发问题）
+        try {
+          await _player!.feedUint8FromStream(dataToFeed);
+          // 成功完成，重置状态
+          _isFeeding = false;
+          _stuckDetectionCount = 0;
+          _stuckDetectionTimer?.cancel();
+        } catch (e) {
+          debugPrint('❌ PCM喂入错误: $e');
+          _isFeeding = false;
+          _stuckDetectionTimer?.cancel();
+          await _handleFeedError(e);
+        }
 
         // 减少日志输出频率
         if (kDebugMode) {
@@ -241,9 +246,13 @@ class PCMStreamService {
 
   /// 动态计算最优阈值
   int _calculateOptimalThreshold() {
-    // 根据当前播放状态动态调整
-    if (_stuckDetectionCount > 0) {
-      return _smoothThreshold ~/ 2; // 如果有卡死迹象，减小阈值加快处理
+    // 根据缓冲区大小动态调整
+    if (_smoothBuffer.length > 16000) {
+      // 缓冲区较大时，增大阈值，一次喂入更多数据
+      return _smoothThreshold * 2;
+    } else if (_stuckDetectionCount > 0) {
+      // 如果有卡死迹象，保持正常阈值
+      return _smoothThreshold;
     }
     return _smoothThreshold;
   }

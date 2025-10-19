@@ -312,10 +312,11 @@ class _AlarmScreenState extends State<AlarmScreen>
                         delegate: SliverChildBuilderDelegate((context, index) {
                           final alarm = provider.alarms[index];
                           
-                          // 刷新时添加淡入动画
-                          return FadeTransition(
-                            opacity: _refreshAnimation,
-                            child: AlarmListItem(
+                          // 只在刷新时添加淡入动画，否则直接显示
+                          if (_isRefreshing) {
+                            return FadeTransition(
+                              opacity: _refreshAnimation,
+                              child: AlarmListItem(
                               alarm: alarm,
                               onToggle: (enabled) async {
                                 await provider.toggleAlarm(alarm.id, enabled);
@@ -337,6 +338,29 @@ class _AlarmScreenState extends State<AlarmScreen>
                               },
                             ),
                           );
+                          } else {
+                            // 非刷新时直接显示，无动画
+                            return AlarmListItem(
+                              alarm: alarm,
+                              onToggle: (enabled) async {
+                                await provider.toggleAlarm(alarm.id, enabled);
+                                await HapticsService.instance.impact();
+                              },
+                              onEdit: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) =>
+                                        AlarmEditScreen(alarm: alarm),
+                                  ),
+                                );
+                              },
+                              onDelete: () async {
+                                await provider.deleteAlarm(alarm.id);
+                                await HapticsService.instance.impact();
+                              },
+                            );
+                          }
                         }, childCount: provider.alarms.length),
                       ),
                     ),

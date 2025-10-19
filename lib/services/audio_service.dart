@@ -155,17 +155,31 @@ class AudioService {
     }
 
     try {
-      if (!_streamingSessionActive) {
-        debugPrint('🔊 初始化PCM流播放会话');
+      // 确保流式会话已激活（带锁保护）
+      if (!_streamingSessionActive && !_isInitializingStream) {
+        _isInitializingStream = true;
         
-        if (_keepAlive) {
-          await stopBackgroundKeepAlive();
+        try {
+          debugPrint('🔊 初始化PCM流播放会话');
+          
+          if (_keepAlive) {
+            await stopBackgroundKeepAlive();
+          }
+          
+          final inVoiceChatMode = _currentAudioMode == _AudioMode.voiceChat;
+          debugPrint('🎤 当前音频模式: ${inVoiceChatMode ? "语音聊天" : "播放"}');
+          
+          _streamingSessionActive = true;
+        } finally {
+          _isInitializingStream = false;
         }
-        
-        final inVoiceChatMode = _currentAudioMode == _AudioMode.voiceChat;
-        debugPrint('🎤 当前音频模式: ${inVoiceChatMode ? "语音聊天" : "播放"}');
-        
-        _streamingSessionActive = true;
+      } else if (_isInitializingStream) {
+        // 正在初始化中，等待完成
+        var waited = 0;
+        while (_isInitializingStream && waited < 50) {
+          await Future.delayed(const Duration(milliseconds: 10));
+          waited++;
+        }
       }
 
       // 使用 PCMStreamService 直接播放（自动处理WAV头）
@@ -174,6 +188,7 @@ class AudioService {
     } catch (e, stackTrace) {
       debugPrint('❌ streamWavFragment 异常: $e');
       debugPrint('📍 堆栈信息: $stackTrace');
+      _isInitializingStream = false; // 确保锁被释放
     }
   }
 
@@ -218,20 +233,37 @@ class AudioService {
     }
   }
 
-  /// 喂入PCM数据到流式播放器（优化版 - 减少日志）
+  // 添加初始化锁，防止并发初始化
+  bool _isInitializingStream = false;
+
+  /// 喂入PCM数据到流式播放器（优化版 - 防止重复初始化）
   Future<void> _feedPcmToStream(Uint8List pcmData) async {
     try {
-      if (!_streamingSessionActive) {
-        debugPrint('🔊 初始化PCM流播放会话');
+      // 确保流式会话已激活（带锁保护）
+      if (!_streamingSessionActive && !_isInitializingStream) {
+        _isInitializingStream = true;
         
-        if (_keepAlive) {
-          await stopBackgroundKeepAlive();
+        try {
+          debugPrint('🔊 初始化PCM流播放会话');
+          
+          if (_keepAlive) {
+            await stopBackgroundKeepAlive();
+          }
+          
+          final inVoiceChatMode = _currentAudioMode == _AudioMode.voiceChat;
+          debugPrint('🎤 当前音频模式: ${inVoiceChatMode ? "语音聊天" : "播放"}');
+          
+          _streamingSessionActive = true;
+        } finally {
+          _isInitializingStream = false;
         }
-        
-        final inVoiceChatMode = _currentAudioMode == _AudioMode.voiceChat;
-        debugPrint('🎤 当前音频模式: ${inVoiceChatMode ? "语音聊天" : "播放"}');
-        
-        _streamingSessionActive = true;
+      } else if (_isInitializingStream) {
+        // 正在初始化中，等待完成
+        var waited = 0;
+        while (_isInitializingStream && waited < 50) {
+          await Future.delayed(const Duration(milliseconds: 10));
+          waited++;
+        }
       }
 
       // 直接喂入PCM数据，不添加WAV头部
@@ -244,6 +276,7 @@ class AudioService {
     } catch (e, stackTrace) {
       debugPrint('❌ _feedPcmToStream 异常: $e');
       debugPrint('📍 堆栈信息: $stackTrace');
+      _isInitializingStream = false; // 确保锁被释放
     }
   }
 
